@@ -25,6 +25,8 @@ class Config:
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     telegram_api_base: str = "https://api.telegram.org"
     appraisal_timeout: float = 150.0
+    appraisal_max_tokens: int = 2500
+    provider_sort: str = "latency"  # OpenRouter routes to the fastest host; "" turns it off
 
 
 def _first(env, *names):
@@ -33,6 +35,13 @@ def _first(env, *names):
         if v:
             return v
     return ""
+
+
+def _provider_sort(env) -> str:
+    v = _first(env, "INTERACTOR_PROVIDER_SORT").lower()
+    if v in ("off", "none", "false", "0"):
+        return ""
+    return v or "latency"
 
 
 def load_config(env=None) -> Config:
@@ -63,4 +72,5 @@ def load_config(env=None) -> Config:
         timezone=_first(env, "TIMEZONE") or "America/Toronto",
         openrouter_base_url=_first(env, "OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1",
         telegram_api_base=_first(env, "TELEGRAM_API_BASE") or "https://api.telegram.org",
+        provider_sort=_provider_sort(env),
     )

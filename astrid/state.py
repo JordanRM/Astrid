@@ -9,8 +9,8 @@ FIELDS = ("trust", "rapport", "irritation", "energy", "vulnerability", "arousal"
 
 # Where each value settles when nothing is happening (fresh relationship: guarded, not hostile).
 BASELINE = {
-    "trust": 2.0,
-    "rapport": 2.0,
+    "trust": 4.0,
+    "rapport": 3.0,
     "irritation": 1.0,
     "energy": 6.0,
     "vulnerability": 3.0,
@@ -107,15 +107,15 @@ def render(state: State, local_now: datetime) -> str:
     ]
     lines.append(
         _band(v["trust"], [
-            (2.5, "You barely trust Jordan yet. Stay a little guarded; warmth has to be earned."),
-            (5.0, "You're cautiously warm with Jordan. Open up in small steps."),
+            (2.5, "You don't trust Jordan much right now. Stay guarded until he shows he's worth it."),
+            (5.0, "You're warm toward Jordan but still getting to know him. You're friendly and engaged, and you open up gradually."),
             (7.5, "You trust Jordan. You can be open and let your guard down."),
             (11.0, "You trust Jordan deeply. You can be soft, honest and vulnerable with him."),
         ])
     )
     lines.append(
         _band(v["rapport"], [
-            (3.0, "You two are still stiff with each other."),
+            (3.0, "You're still getting comfortable with each other, but you make a real effort in conversation."),
             (6.0, "There's an easy back and forth between you."),
             (11.0, "You're close: teasing, inside references and long silences are all comfortable."),
         ])
@@ -142,15 +142,19 @@ def render(state: State, local_now: datetime) -> str:
     if state.directive:
         lines.append(f"Your own private note to yourself for this reply: {state.directive}")
 
-    if v["irritation"] >= 5 or energy <= 3:
-        lines.append("Length: very short. A few words to one sentence.")
-    elif v["rapport"] >= 6 and energy >= 6:
-        lines.append("Length: loose and chatty is fine, 1 to 4 short sentences.")
-    else:
-        lines.append("Length: usually 1 or 2 short sentences.")
     return "\n".join(lines)
 
 
 def numbers_line(state: State) -> str:
     v = state.values
     return ", ".join(f"{k} {v[k]:.1f}" for k in FIELDS)
+
+
+def length_guidance(state: State, local_now: datetime) -> str:
+    v = state.values
+    energy = clamp(v["energy"] + circadian_energy_shift(local_now.hour))
+    if v["irritation"] >= 5 or energy <= 3:
+        return "Length: very short. A few words to one sentence."
+    if v["rapport"] >= 6 and energy >= 6:
+        return "Length: loose and chatty is fine, 1 to 4 short sentences."
+    return "Length: usually 1 or 2 short sentences."

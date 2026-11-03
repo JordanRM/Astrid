@@ -32,8 +32,11 @@ def test_reply_stores_both_sides_and_prompt_has_state(db_url):
     assert out == "what're you playing?"
     assert [(m.role, m.content) for m in msgs] == [("user", "playing guitar"), ("assistant", "what're you playing?")]
     sysmsg = calls[0]["messages"][0]["content"]
-    assert calls[0]["model"] == "euryale" and calls[0]["messages"][-1] == {"role": "user", "content": "playing guitar"}
-    assert "You are Astrid" in sysmsg and "Eastern time" in sysmsg and "barely trust" in sysmsg
+    assert calls[0]["model"] == "euryale" and calls[0]["messages"][-2] == {"role": "user", "content": "playing guitar"}
+    assert "You are Astrid" in sysmsg and "Eastern time" in sysmsg and "warm toward Jordan" in sysmsg
+    last = calls[0]["messages"][-1]
+    assert last["role"] == "system" and "Reply now as Astrid" in last["content"] and "Length:" in last["content"]
+    assert calls[0]["extra"] == {"provider": {"sort": "latency"}}
 
 
 def test_hard_violation_regenerates_once(db_url):
@@ -72,9 +75,9 @@ def test_critic_hints_and_gap_note_reach_the_prompt(db_url):
         llm.script("euryale", "fine")
         await a.reply(1, "back again")
         await db.close()
-        return llm.calls[0]["messages"][0]["content"]
-    sysmsg = asyncio.run(go())
-    assert "ended with a question" in sysmsg
+        return llm.calls[0]["messages"][0]["content"], llm.calls[0]["messages"][-1]["content"]
+    sysmsg, reminder = asyncio.run(go())
+    assert "ended with a question" in reminder                      # habit hints ride in the final reminder
     assert "previous message before this one was about 5 hours ago" in sysmsg
 
 

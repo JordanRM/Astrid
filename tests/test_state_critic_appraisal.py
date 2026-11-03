@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from astrid import appraisal, critic
-from astrid.state import BASELINE, MAX_STEP, State, apply_deltas, decayed, render
+from astrid.state import BASELINE, MAX_STEP, State, apply_deltas, decayed, length_guidance, render
 
 H = 3600.0
 
@@ -51,10 +51,18 @@ def test_render_reflects_state():
     s.mood, s.unresolved_tension, s.directive = "cold", "he dismissed her opinion", "stay curt"
     t = render(s, night)
     assert "Tuesday November 3, 1:05 AM" in t
-    assert "barely trust" in t and "genuinely irritated" in t and "turned on" in t
+    assert "don't trust Jordan much" in t and "genuinely irritated" in t and "turned on" in t
     assert "he dismissed her opinion" in t and "stay curt" in t
-    assert "very short" in t                       # irritated -> short
-    assert "energy is low" in t                    # 6 + (-2.5) at 1am
+    assert "energy is low" in t                    # 6 - 3 at 1am
+    assert "very short" in length_guidance(s, night)               # irritated -> short
+    assert "1 or 2 short" in length_guidance(mk(), night.replace(hour=14))
+    assert "chatty" in length_guidance(mk(rapport=7, energy=7), night.replace(hour=14))
+
+
+def test_fresh_state_is_friendly_not_cold():
+    t = render(mk(), datetime(2026, 11, 3, 14, 0, tzinfo=ZoneInfo("America/Toronto")))
+    assert "warm toward Jordan" in t and "easy back and forth" in t
+    assert "barely trust" not in t and "annoyed" not in t and "irritated" not in t
 
 
 def test_hard_violations():

@@ -18,7 +18,7 @@ def test_migrate_is_idempotent_and_creates_default_state(db_url):
         await db.close()
         return first, second, st
     first, second, st = run(go())
-    assert first == ["001_init.sql"] and second == []
+    assert first == ["001_init.sql", "002_warmer_defaults.sql"] and second == []
     assert st.values == BASELINE and st.mood == "neutral"
 
 
