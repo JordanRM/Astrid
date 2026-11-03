@@ -130,6 +130,28 @@ class Database:
         )
         return [Message(r["role"], r["content"], r["ts"]) for r in rows]
 
+    # ---- flagged replies (/meh) ----
+    async def last_exchange(self, chat_id: int) -> tuple[str | None, str] | None:
+        """Her latest reply and the message from Jordan right before it. None if she hasn't replied yet."""
+        msgs = await self.recent_messages(chat_id, 6)
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].role == "assistant":
+                user = next((m.content for m in reversed(msgs[:i]) if m.role == "user"), None)
+                return user, msgs[i].content
+        return None
+
+    async def add_flag(self, chat_id: int, user_text: str | None, reply: str, note: str | None,
+                       mood: str | None, state_values: dict) -> None:
+        await self.execute(
+            "insert into astrid.flags (chat_id, user_text, reply, note, mood, state) values (%s, %s, %s, %s, %s, %s::jsonb)",
+            (chat_id, user_text, reply, note, mood, json.dumps(state_values)),
+        )
+
+    async def list_flags(self, limit: int = 200) -> list[dict]:
+        return await self.fetch(
+            "select id, created_at, user_text, reply, note, mood from astrid.flags order by id desc limit %s", (limit,)
+        )
+
     # ---- state ----
     async def get_state(self) -> State:
         row = await self.fetchrow(

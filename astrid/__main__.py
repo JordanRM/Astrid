@@ -16,6 +16,7 @@ USAGE = """usage: python -m astrid [command]
   (none)   run the bot
   migrate  create or update the database tables
   check    verify settings, database, Telegram and the reply model
+  flags    list replies you flagged with /meh in Telegram
   reset    forget the conversation and put her back to a first meeting (add --yes)"""
 
 
@@ -93,6 +94,18 @@ def main() -> int:
             await db.reset_all(time.time())
             await db.close()
             print("reset done: conversation cleared, state back to baseline")
+        asyncio.run(go())
+        return 0
+    if cmd == "flags":
+        async def go():
+            db = Database(cfg.database_url)
+            await db.migrate()
+            rows = await db.list_flags()
+            await db.close()
+            if not rows:
+                print("no flagged replies yet")
+            for r in reversed(rows):
+                print(f"#{r['id']} [{r['mood']}] jordan: {r['user_text']!r}\n    astrid: {r['reply']!r}\n    note: {r['note'] or '-'}")
         asyncio.run(go())
         return 0
     print(USAGE)

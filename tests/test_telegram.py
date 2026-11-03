@@ -149,3 +149,41 @@ def test_restart_does_not_replay_old_updates(db_url, server):
         return off
     off = asyncio.run(go())
     assert api.sent == [] and off == "4"
+
+
+def test_meh_flags_last_reply_with_note_and_never_reaches_her(db_url, server):
+    api = FakeTelegramAPI(server, backlog=[], queue=[
+        {"update_id": 1, "message": msg(42, "what have you been up to")},
+        {"update_id": 2, "message": msg(42, "/meh too philosophical")},
+        {"update_id": 3, "message": msg(99, "/meh@astrid_bot stranger")},
+        {"update_id": 4, "message": msg(42, "/MEH@astrid_bot")},
+    ])
+    async def go():
+        db, llm = await drive(db_url, server, api, expect_sent=3)
+        flags = await db.list_flags()
+        msgs = await db.recent_messages(42, 10)
+        await db.close()
+        return flags, msgs, llm
+    flags, msgs, llm = asyncio.run(go())
+    assert [s["text"] for s in api.sent] == ["hello there", "(noted)", "(noted)"]
+    assert [(f["note"], f["reply"], f["user_text"]) for f in reversed(flags)] == [
+        ("too philosophical", "hello there", "what have you been up to"),
+        (None, "hello there", "what have you been up to"),
+    ]
+    assert [m.content for m in msgs] == ["what have you been up to", "hello there"]   # commands are not conversation
+    assert len(llm.calls) == 2                                                          # one reply, one appraisal
+
+
+def test_meh_with_nothing_to_flag(db_url, server):
+    api = FakeTelegramAPI(server, backlog=[], queue=[{"update_id": 1, "message": msg(42, "/meh")}])
+    async def go():
+        db = Database(db_url)
+        await db.migrate()
+        await db.set_setting("owner_telegram_id", "42")
+        await db.close()
+        db, _ = await drive(db_url, server, api)
+        flags = await db.list_flags()
+        await db.close()
+        return flags
+    assert asyncio.run(go()) == []
+    assert [s["text"] for s in api.sent] == ["(nothing to flag yet)"]

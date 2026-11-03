@@ -95,11 +95,32 @@ class Bot:
         except asyncio.CancelledError:
             pass
 
+    async def _flag(self, chat_id: int, sender: int, note: str):
+        """/meh [note]: mark her latest reply as off. Owner only; never reaches her or the conversation."""
+        if sender != await self._owner_id():
+            return
+        last = await self.db.last_exchange(chat_id)
+        try:
+            if last is None:
+                await self.tg.send_message(chat_id, "(nothing to flag yet)")
+                return
+            state = await self.db.get_state()
+            await self.db.add_flag(chat_id, last[0], last[1], note or None, state.mood, state.values)
+            log.info("flagged reply %r note=%r", last[1][:60], note)
+            await self.tg.send_message(chat_id, "(noted)")
+        except TelegramError as e:
+            log.warning("could not confirm flag: %s", e)
+
     async def handle_message(self, msg: dict):
         chat = msg.get("chat") or {}
         sender = (msg.get("from") or {}).get("id")
         text = (msg.get("text") or "").strip()
-        if chat.get("type") != "private" or not sender or not text or text.startswith("/"):
+        if chat.get("type") != "private" or not sender or not text:
+            return
+        if text.startswith("/"):
+            head, _, rest = text.partition(" ")
+            if head.split("@")[0].lower() == "/meh":
+                await self._flag(chat["id"], sender, rest.strip())
             return
         owner = await self._owner_id()
         if owner is None:
