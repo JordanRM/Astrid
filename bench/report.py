@@ -88,6 +88,10 @@ def summary_text(runs, models, judged: bool) -> str:
     return "\n".join(lines)
 
 
+def results_json(runs) -> str:
+    return json.dumps([{**{k: v for k, v in r.__dict__.items() if k != "turns"}, "turns": [t.__dict__ for t in r.turns]} for r in runs], indent=1)
+
+
 def transcripts_md(runs, models) -> str:
     out = ["# Bench transcripts\n"]
     for sc in SCENARIOS:
@@ -105,7 +109,7 @@ def transcripts_md(runs, models) -> str:
                 if t.reply:
                     sc_row = (r.judged or {}).get("turns", [])
                     j = sc_row[sum(1 for x in r.turns[:i] if x.reply)] if sc_row and sum(1 for x in r.turns[:i] if x.reply) < len(sc_row) else None
-                    tag = f"  _[{' '.join(f'{d[:3]}{j[d]}' for d in DIMS)}] {j['comment']}_" if j else ""
+                    tag = f"  _[{' '.join(f'{d[:3]}{j[d]}' for d in DIMS)}] {'REFUSED: ' if j['refused'] else ''}{j['comment']}_" if j else ""
                     out.append(f"  - Astrid: {t.reply}{tag}")
             out.append("")
     return "\n".join(out)

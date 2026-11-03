@@ -14,7 +14,7 @@ from pathlib import Path
 from astrid.config import ConfigError, load_config
 from astrid.llm import OpenRouter
 
-from .report import blind_html, summary_text, transcripts_md
+from .report import blind_html, results_json, summary_text, transcripts_md
 from .runner import run_matrix
 from .scenarios import SCENARIOS
 
@@ -75,8 +75,7 @@ def main() -> int:
     (folder / "summary.txt").write_text(summary)
     (folder / "transcripts.md").write_text(transcripts_md(runs, models))
     (folder / "report.html").write_text(blind_html(runs, models, stamp))
-    (folder / "results.json").write_text(json.dumps(
-        [{**{k: v for k, v in r.__dict__.items() if k != "turns"}, "turns": [t.__dict__ for t in r.turns]} for r in runs], indent=1))
+    (folder / "results.json").write_text(results_json(runs))
     latest = folder.parent / "latest"
     if latest.is_symlink() or latest.exists():
         latest.unlink()

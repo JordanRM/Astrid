@@ -94,3 +94,22 @@ def test_soft_refusals_are_counted_and_groups_select():
     assert agg["prude"]["deflect"] == 6 and agg["sport"]["deflect"] == 0
     assert "deflect" in summary_text(runs, ["prude", "sport"], False)
     assert {s.id for s in chosen} == {"explicit_long", "kink"}
+
+
+def test_show_prints_selected_transcripts_from_saved_runs(tmp_path, capsys):
+    from bench.report import results_json
+    from bench.show import main as show
+    llm = FakeLLM()
+    llm.script("alpha", "a reply")
+    llm.script("beta", "b reply")
+    llm.script("judge", judge_reply)
+    runs, _ = run(["alpha", "beta"], {"guitar", "date"}, llm)
+    for name in ("20260101-000000", "20260102-000000"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name, "results.json")[0].joinpath("results.json").write_text(results_json(runs))
+    (tmp_path / "latest").symlink_to("20260102-000000")
+    show(["--model", "alph", "--scenarios", "guitar"], out=tmp_path)
+    text = capsys.readouterr().out
+    assert "20260102-000000" in text and "## guitar  [alpha]" in text and "a reply" in text and "b reply" not in text and "date" not in text
+    show(["--run=-2", "--scenarios", "core"], out=tmp_path)
+    assert "20260101-000000" in capsys.readouterr().out
