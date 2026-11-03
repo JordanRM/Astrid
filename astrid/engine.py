@@ -33,6 +33,8 @@ class Astrid:
         self.tz = ZoneInfo(cfg.timezone)
         self._reply_locks: dict[int, asyncio.Lock] = {}
         self._appraisal_lock = asyncio.Lock()
+        self._pending: list[tuple[int, str, str]] = []
+        self._worker: asyncio.Task | None = None
 
     def _lock_for(self, chat_id: int) -> asyncio.Lock:
         return self._reply_locks.setdefault(chat_id, asyncio.Lock())
@@ -85,22 +87,56 @@ class Astrid:
             reply = retry
         return reply.strip(), calls
 
+    # ---- background appraisal ----
+    def queue_appraisal(self, chat_id: int, user_text: str, reply_text: str) -> asyncio.Task:
+        """Queue an exchange. If the slow reasoning model is busy, queued exchanges are judged together."""
+        self._pending.append((chat_id, user_text, reply_text))
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._appraisal_worker())
+        return self._worker
+
+    async def _appraisal_worker(self) -> None:
+        while self._pending:
+            batch, self._pending = self._pending, []
+            chat_id = batch[-1][0]
+            await self.appraise_batch(chat_id, [(u, r) for _, u, r in batch])
+
+    def cancel_background(self) -> None:
+        if self._worker is not None and not self._worker.done():
+            self._worker.cancel()
+
     async def appraise(self, chat_id: int, user_text: str, reply_text: str) -> None:
-        """Runs in the background after a reply. Never raises; failures only skip the update."""
+        await self.appraise_batch(chat_id, [(user_text, reply_text)])
+
+    async def appraise_batch(self, chat_id: int, exchanges: list[tuple[str, str]]) -> None:
+        """Never raises; a failure only skips the update."""
+        started = time.monotonic()
+        raw = ""
         try:
             async with self._appraisal_lock:
                 now = self.now()
                 state = decayed(await self.db.get_state(), now)
-                history = await self.db.recent_messages(chat_id, 8)
-                earlier = [(m.role, m.content) for m in history[:-2]]
-                raw = await self.llm.chat(
-                    self.cfg.thinking_model,
-                    appraisal.build_messages(state, earlier, user_text, reply_text),
-                    max_tokens=self.cfg.appraisal_max_tokens,
-                    timeout=self.cfg.appraisal_timeout,
-                )
-                result = appraisal.parse(raw)
-                new, applied = apply_deltas(state, result["deltas"])
+                history = await self.db.recent_messages(chat_id, 8 + 2 * len(exchanges))
+                earlier = [(m.role, m.content) for m in history[: max(0, len(history) - 2 * len(exchanges))]]
+                messages = appraisal.build_messages(state, earlier, exchanges)
+                log.info("appraising %d exchange%s", len(exchanges), "" if len(exchanges) == 1 else "s")
+                result = None
+                for attempt in (1, 2):
+                    raw = await self.llm.chat(
+                        self.cfg.thinking_model, messages,
+                        max_tokens=self.cfg.appraisal_max_tokens, timeout=self.cfg.appraisal_timeout,
+                    )
+                    try:
+                        result = appraisal.parse(raw)
+                        break
+                    except ValueError:
+                        if attempt == 2:
+                            raise
+                        log.info("appraisal reply was not usable JSON; asking once more")
+                        messages = messages + [
+                            {"role": "user", "content": "Reply with ONLY the JSON object described above. No other text."}
+                        ]
+                new, applied = apply_deltas(state, result["deltas"], scale=min(len(exchanges), 3))
                 if result["mood"]:
                     new.mood = result["mood"]
                 if result["tension_set"]:
@@ -108,6 +144,8 @@ class Astrid:
                 if result["directive"]:
                     new.directive = result["directive"]
                 await self.db.save_state(new, self.now(), "appraisal", applied, result["note"])
-                log.info("appraisal saved: mood=%s deltas=%s", new.mood, applied)
+                log.info("appraisal saved in %.0fs: mood=%s deltas=%s", time.monotonic() - started, new.mood, applied)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:  # background work must never crash the bot
-            log.warning("appraisal skipped: %s", e)
+            log.warning("appraisal skipped after %.0fs: %s | model said: %r", time.monotonic() - started, e, (raw or "")[:200])

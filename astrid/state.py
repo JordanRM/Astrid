@@ -5,12 +5,13 @@ import math
 from dataclasses import dataclass, field
 from datetime import datetime
 
-FIELDS = ("trust", "rapport", "irritation", "energy", "vulnerability", "arousal")
+FIELDS = ("trust", "rapport", "affection", "irritation", "energy", "vulnerability", "arousal")
 
 # Where each value settles when nothing is happening (fresh relationship: guarded, not hostile).
 BASELINE = {
     "trust": 4.0,
     "rapport": 3.0,
+    "affection": 1.0,
     "irritation": 1.0,
     "energy": 6.0,
     "vulnerability": 3.0,
@@ -22,6 +23,7 @@ BASELINE = {
 HALF_LIFE_HOURS = {
     "trust": 24 * 30,
     "rapport": 24 * 30,
+    "affection": 24 * 60,
     "irritation": 8,
     "energy": 12,
     "vulnerability": 12,
@@ -29,6 +31,7 @@ HALF_LIFE_HOURS = {
 }
 
 MAX_STEP = 1.5  # biggest change one exchange may cause in one field
+STEP_CAPS = {"affection": 0.5}  # love grows slowly: it can never jump in a single exchange
 
 
 @dataclass
@@ -59,8 +62,9 @@ def decayed(state: State, now: float) -> State:
     return out
 
 
-def apply_deltas(state: State, deltas: dict) -> tuple[State, dict]:
-    """Apply bounded changes. Returns the new state and the deltas actually applied."""
+def apply_deltas(state: State, deltas: dict, scale: float = 1.0) -> tuple[State, dict]:
+    """Apply bounded changes. `scale` widens the caps when one appraisal covers several exchanges.
+    Returns the new state and the deltas actually applied."""
     out = state.copy()
     applied = {}
     for k, d in (deltas or {}).items():
@@ -72,7 +76,8 @@ def apply_deltas(state: State, deltas: dict) -> tuple[State, dict]:
             continue
         if not math.isfinite(d):
             continue
-        d = max(-MAX_STEP, min(MAX_STEP, d))
+        cap = STEP_CAPS.get(k, MAX_STEP) * scale
+        d = max(-cap, min(cap, d))
         new = clamp(out.values[k] + d)
         applied[k] = round(new - out.values[k], 3)
         out.values[k] = new
@@ -111,6 +116,14 @@ def render(state: State, local_now: datetime) -> str:
             (5.0, "You're warm toward Jordan but still getting to know him. You're friendly and engaged, and you open up gradually."),
             (7.5, "You trust Jordan. You can be open and let your guard down."),
             (11.0, "You trust Jordan deeply. You can be soft, honest and vulnerable with him."),
+        ])
+    )
+    lines.append(
+        _band(v["affection"], [
+            (3.0, "You like Jordan, but it isn't romantic."),
+            (5.0, "You're growing fond of Jordan. You notice small things about him and light up a little when he writes."),
+            (7.5, "You care about Jordan deeply and you're openly affectionate and tender when the moment calls for it."),
+            (11.0, "You're in love with Jordan. You can say so simply, in your own words, and it shows in how attentive and tender you are."),
         ])
     )
     lines.append(

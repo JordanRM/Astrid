@@ -85,6 +85,10 @@ def test_hints():
     assert any("long" in h for h in critic.reply_hints(["word " * 60, "word " * 60]))
     rep = ["i think you should rest tonight", "yeah you should rest tonight honestly"]
     assert any("repeated" in h for h in critic.reply_hints(rep))
+    tags = ["that's a fair point, isn't it?", "we all want that, you know?", "sure."]
+    assert any("filler tag" in h for h in critic.reply_hints(tags))
+    deep = ["the mysteries of the universe fascinate me", "there's an unbridgeable gap, part of their allure", "ok"]
+    assert any("philosophical" in h for h in critic.reply_hints(deep))
     assert critic.reply_hints(["only one"]) == []
     assert critic.reply_hints(["fine.", "ok sure", "right"]) == []
 
@@ -115,6 +119,24 @@ def test_parse_rejects_junk(raw):
 
 
 def test_prompt_includes_state_and_exchange():
-    m = appraisal.build_messages(mk(trust=4.0), [("user", "hi"), ("assistant", "yo")], "you suck", "wow ok")
-    assert m[0]["role"] == "system" and "trust 4.0" in m[1]["content"]
+    m = appraisal.build_messages(mk(trust=4.0), [("user", "hi"), ("assistant", "yo")], [("you suck", "wow ok")])
+    assert m[0]["role"] == "system" and "trust 4.0" in m[1]["content"] and "affection 1.0" in m[1]["content"]
     assert "Jordan: you suck" in m[1]["content"] and "Astrid: wow ok" in m[1]["content"]
+    assert "This exchange:" in m[1]["content"]
+    many = appraisal.build_messages(mk(), [], [("a", "b"), ("c", "d")])
+    assert "These 2 exchanges" in many[1]["content"] and "Jordan: c" in many[1]["content"]
+
+
+def test_affection_grows_slowly_and_shapes_the_prompt():
+    new, applied = apply_deltas(mk(), {"affection": 3.0, "trust": 3.0})
+    assert applied["affection"] == 0.5 and applied["trust"] == MAX_STEP    # love is capped far below other moves
+    _, batch = apply_deltas(mk(), {"affection": 3.0}, scale=3)
+    assert batch["affection"] == 1.5                                          # three exchanges judged together
+    day = datetime(2026, 11, 3, 14, 0, tzinfo=ZoneInfo("America/Toronto"))
+    assert "isn't romantic" in render(mk(affection=1.0), day)
+    assert "growing fond" in render(mk(affection=4.0), day)
+    assert "openly affectionate" in render(mk(affection=6.5), day)
+    assert "in love with Jordan" in render(mk(affection=9.0), day)
+    assert "in love" not in render(mk(), day)
+    d = decayed(State(dict(BASELINE, affection=9.0), "x", None, None, 1000.0), 1000.0 + 24 * 3600)
+    assert d.values["affection"] > 8.8                                       # lingers for weeks, not hours

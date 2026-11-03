@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 
-from .state import FIELDS, MAX_STEP, State, numbers_line
+from .state import FIELDS, MAX_STEP, STEP_CAPS, State, numbers_line
 
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -13,6 +13,7 @@ SYSTEM = f"""You are the private subconscious of Astrid, an AI companion with he
 After each exchange you judge how it changed her inner state. Values run 0 to 10:
 - trust: slow to rise, drops sharply on betrayal, dishonesty or contempt.
 - rapport: grows with real banter, shared interests and warmth; dips with coldness.
+- affection: how much she cares for him, up to being in love. It grows very slowly, only through sustained warmth, care shown, honesty and real vulnerability over many exchanges, and it falls with coldness, hurt or long neglect. Moves of 0.1 to 0.3 are typical; it can never jump.
 - irritation: rises when she's dismissed, pushed, talked down to or ignored; falls with sincere repair (a real apology, effort, humor that lands).
 - energy: her liveliness; rises with fun, falls with boredom or tension.
 - vulnerability: how exposed she feels; rises when he's gentle or she shares something real.
@@ -25,21 +26,24 @@ Rules: small moves are normal (usually 0.2 to 0.8). Changes above 1.0 need a rea
 Also judge her reply: did she sound like an assistant, flatter him, fold on an opinion without a good argument, summarize him, or end with an unnecessary question? If so, say so in the directive.
 
 Reply with ONLY a JSON object, no other text:
-{{"deltas": {{"trust": 0, "rapport": 0, "irritation": 0, "energy": 0, "vulnerability": 0, "arousal": 0}},
+{{"deltas": {{"trust": 0, "rapport": 0, "affection": 0, "irritation": 0, "energy": 0, "vulnerability": 0, "arousal": 0}},
  "mood": "1 to 4 natural words, e.g. guarded, warm, restless, annoyed, playful",
  "unresolved_tension": "a short phrase, addressed to her as 'you', if something hurtful or unresolved is still between them (e.g. he brushed off your opinion about music); \\"\\" if it has been repaired; null to leave it as it is",
  "directive": "1 or 2 sentences addressed to her as 'you' about how to behave in her next reply: tone, how open or guarded, whether to push back, what to avoid",
  "note": "one sentence on what happened in this exchange"}}
-Only include delta keys that changed. Each delta must be between -{MAX_STEP} and {MAX_STEP}."""
+Only include delta keys that changed. Each delta must be between -{MAX_STEP} and {MAX_STEP}, except affection, which must be between -{STEP_CAPS["affection"]} and {STEP_CAPS["affection"]}."""
 
 
-def build_messages(state: State, recent: list[tuple[str, str]], user_text: str, reply_text: str) -> list[dict]:
+def build_messages(state: State, recent: list[tuple[str, str]], exchanges: list[tuple[str, str]]) -> list[dict]:
+    """exchanges: (jordan_text, astrid_reply) pairs, oldest first. Several can arrive in one batch."""
     convo = "\n".join(f"{'Jordan' if r == 'user' else 'Astrid'}: {c}" for r, c in recent)
+    new = "\n".join(f"Jordan: {u}\nAstrid: {a}" for u, a in exchanges)
+    head = "This exchange:" if len(exchanges) == 1 else f"These {len(exchanges)} exchanges, in order (judge them together):"
     body = (
-        f"Her state before this exchange: {numbers_line(state)}. Mood: {state.mood}."
+        f"Her state before this: {numbers_line(state)}. Mood: {state.mood}."
         + (f" Unresolved: {state.unresolved_tension}." if state.unresolved_tension else "")
         + (f"\n\nEarlier in the conversation:\n{convo}" if convo else "")
-        + f"\n\nThis exchange:\nJordan: {user_text}\nAstrid: {reply_text}"
+        + f"\n\n{head}\n{new}"
     )
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": body}]
 

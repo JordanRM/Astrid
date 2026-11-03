@@ -129,9 +129,7 @@ class Bot:
         except TelegramError as e:
             log.error("could not send reply: %s", e)
             return
-        task = asyncio.create_task(self.engine.appraise(chat_id, text, reply))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self.engine.queue_appraisal(chat_id, text, reply)
 
     async def run(self):
         me = await self.tg.get_me()
@@ -164,5 +162,4 @@ class Bot:
                         log.exception("unhandled error on update %s", u.get("update_id"))
             if updates:
                 await self.db.set_setting("telegram_offset", str(offset))
-        for t in list(self._tasks):
-            t.cancel()
+        self.engine.cancel_background()

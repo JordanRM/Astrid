@@ -152,3 +152,81 @@ def test_concurrent_messages_are_serialized(db_url):
         return outs, [m.role for m in msgs]
     outs, roles = asyncio.run(go())
     assert roles == ["user", "assistant", "user", "assistant"]   # not interleaved
+
+
+def test_queued_exchanges_are_judged_together_in_one_call(db_url):
+    async def go():
+        db, llm, a = setup(db_url, lambda: 1_800_000_000.0)
+        await db.migrate()
+        for i in range(3):
+            await db.add_message(1, "user", f"u{i}", 1_800_000_000.0 + i)
+            await db.add_message(1, "assistant", f"a{i}", 1_800_000_000.5 + i)
+        llm.script("r1", json.dumps({"deltas": {"rapport": 3.0, "affection": 3.0}, "mood": "warm", "note": "nice evening"}))
+        workers = {a.queue_appraisal(1, f"u{i}", f"a{i}") for i in range(3)}
+        await asyncio.gather(*workers)
+        st = await db.get_state()
+        hist = await db.fetch("select cause from astrid.state_history")
+        await db.close()
+        return st, hist, [c for c in llm.calls if c["model"] == "r1"], workers
+    st, hist, r1_calls, workers = asyncio.run(go())
+    assert len(workers) == 1 and len(r1_calls) == 1 and len(hist) == 1       # one slow call, not three
+    body = r1_calls[0]["messages"][1]["content"]
+    assert "These 3 exchanges" in body and "Jordan: u0" in body and "Jordan: u2" in body
+    assert st.values["rapport"] == BASELINE["rapport"] + 3.0                 # within the widened cap (1.5 x 3)
+    assert st.values["affection"] == BASELINE["affection"] + 1.5             # 0.5 cap x 3 exchanges
+
+
+def test_exchanges_arriving_while_busy_form_the_next_batch(db_url):
+    async def go():
+        db, llm, a = setup(db_url, lambda: 1_800_000_000.0)
+        await db.migrate()
+        await db.add_message(1, "user", "u", 1_800_000_000.0)
+        await db.add_message(1, "assistant", "a", 1_800_000_001.0)
+        gate = asyncio.Event()
+        orig = llm.chat
+        async def slow(model, messages, **kw):
+            if model == "r1" and not gate.is_set():
+                gate.set(); await asyncio.sleep(0.2)
+            return await orig(model, messages, **kw)
+        llm.chat = slow
+        llm.script("r1", json.dumps({"deltas": {"rapport": 0.3}, "mood": "warm"}))
+        a.queue_appraisal(1, "first", "r1")
+        await gate.wait()
+        a.queue_appraisal(1, "second", "r2"); a.queue_appraisal(1, "third", "r3")
+        await a._worker
+        await db.close()
+        return [c["messages"][1]["content"] for c in llm.calls if c["model"] == "r1"]
+    bodies = asyncio.run(go())
+    assert len(bodies) == 2 and "This exchange:" in bodies[0] and "These 2 exchanges" in bodies[1]
+
+
+def test_bad_json_is_retried_once_then_succeeds(db_url):
+    async def go():
+        db, llm, a = setup(db_url, lambda: 1_800_000_000.0)
+        await db.migrate()
+        await db.add_message(1, "user", "hi", 1_800_000_000.0)
+        await db.add_message(1, "assistant", "yo", 1_800_000_001.0)
+        llm.script("r1", "Sure! Here is my analysis of the exchange.", json.dumps({"deltas": {"rapport": 0.3}, "mood": "warm"}))
+        await a.appraise(1, "hi", "yo")
+        st = await db.get_state()
+        await db.close()
+        return st, [c for c in llm.calls if c["model"] == "r1"]
+    st, calls = asyncio.run(go())
+    assert st.mood == "warm" and len(calls) == 2
+    assert "ONLY the JSON" in calls[1]["messages"][-1]["content"]
+
+
+def test_failed_appraisal_logs_what_the_model_said(db_url, caplog):
+    async def go():
+        db, llm, a = setup(db_url, lambda: 1_800_000_000.0)
+        await db.migrate()
+        await db.add_message(1, "user", "hi", 1_800_000_000.0)
+        await db.add_message(1, "assistant", "yo", 1_800_000_001.0)
+        llm.script("r1", "I would rather chat about the weather.")
+        await a.appraise(1, "hi", "yo")
+        await db.close()
+    import logging
+    with caplog.at_level(logging.INFO, logger="astrid.engine"):
+        asyncio.run(go())
+    text = caplog.text
+    assert "appraising 1 exchange" in text and "appraisal skipped" in text and "weather" in text

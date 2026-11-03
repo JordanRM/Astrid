@@ -23,6 +23,14 @@ _ASSISTANTY = re.compile(
 )
 
 
+_TAG_QUESTION = re.compile(r"\b(isn't it|aren't we|don't you think|you know|right|huh)\?\s*$", re.I)
+_ABSTRACT = re.compile(
+    r"\b(existential|the universe|mysteries|mystery|unbridgeable|allure|tapestry|journey|transcend\w*|"
+    r"human experience|connection and understanding|deeper meaning)\b",
+    re.I,
+)
+
+
 def hard_violations(reply: str) -> list[str]:
     return [why for rx, why in _HARD if rx.search(reply)]
 
@@ -64,6 +72,12 @@ def reply_hints(recent_replies: list[str]) -> list[str]:
 
     if sum(1 for r in recent if _ASSISTANTY.search(r)) >= 1:
         hints.append("Recent replies sounded like a customer-service assistant. Talk like a person texting instead.")
+
+    if sum(1 for r in recent[-5:] if _TAG_QUESTION.search(r)) >= 2:
+        hints.append("Stop ending with filler tag questions like \"isn't it?\" or \"you know?\". Make a plain statement instead.")
+
+    if sum(1 for r in recent[-4:] if _ABSTRACT.search(r)) >= 2:
+        hints.append("You've been vague and philosophical. Talk about something specific and concrete instead.")
 
     if _repeated_phrase(recent[-4:]):
         hints.append("You've repeated the same phrasing across recent replies. Use fresh words and say something new.")
