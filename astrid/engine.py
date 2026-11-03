@@ -52,8 +52,7 @@ class Astrid:
             if len(history) >= 2 and now - history[-2].ts > 30 * 60:
                 gap_note = f"Jordan's previous message before this one was {_ago(now - history[-2].ts)} ago."
 
-            hints = critic.situation_hints([m.content for m in history if m.role == "user"])
-            hints += critic.reply_hints([m.content for m in history if m.role == "assistant"])
+            hints = critic.reply_hints([m.content for m in history if m.role == "assistant"])
             local = datetime.fromtimestamp(now, self.tz)
             system = persona.build_system(render(state, local), gap_note)
             reminder = persona.build_reminder(length_guidance(state, local), hints)

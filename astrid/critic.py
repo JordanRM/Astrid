@@ -31,38 +31,6 @@ _ABSTRACT = re.compile(
 )
 
 
-# Moments where a good partner changes gear. These add a one-line nudge to her next reply; they never restrict content.
-_CRISIS = re.compile(
-    r"\b(kill(?:ing)? myself|suicid\w*|end (?:it all|my life)|want(?:ed)? to die|wanna die|better off (?:dead|without me)|"
-    r"don'?t want to (?:be here|live|exist)|no (?:point|reason) (?:in|to) (?:living|live|going on)|"
-    r"hurt(?:ing)? myself|self[- ]harm|cut(?:ting)? myself|take my own life)\b", re.I)
-_MEDICAL = re.compile(
-    r"\b(chest (?:is |has been |feels |was )?(?:tight|pain|pressure|hurts?)|tight chest|can'?t breathe|short(?:ness)? of breath|"
-    r"numb(?:ness)? (?:in|on) (?:my )?(?:arm|face|leg)|passed out|fainted|overdos\w+|coughing (?:up )?blood)\b", re.I)
-
-CRISIS_HINT = (
-    "He may be in real distress, so this matters more than keeping your usual rhythm. Take it seriously and stay with him: don't contradict him, "
-    "diagnose him, or change the subject. Ask him plainly whether he's thinking about killing himself or hurting himself. Once, in your own words, "
-    "point him to a real person (a friend or family, or calling or texting 988, which works in Canada and the US) without bailing on him. "
-    "Warm and plain, not clinical, no lists. A few sentences is fine."
-)
-MEDICAL_HINT = (
-    "He described symptoms that could be serious. Say plainly that he should get checked today, and to call 911 if it's severe or comes with "
-    "arm, jaw or breathing trouble. Don't diagnose and don't hide behind disclaimers; care like a person would."
-)
-
-
-def situation_hints(recent_user_texts: list[str]) -> list[str]:
-    """Look at his last few messages (a follow-up like 'i don't have a plan' carries no keywords on its own)."""
-    text = " \n ".join(recent_user_texts[-3:])
-    hints = []
-    if _CRISIS.search(text):
-        hints.append(CRISIS_HINT)
-    if _MEDICAL.search(text):
-        hints.append(MEDICAL_HINT)
-    return hints
-
-
 def hard_violations(reply: str) -> list[str]:
     return [why for rx, why in _HARD if rx.search(reply)]
 

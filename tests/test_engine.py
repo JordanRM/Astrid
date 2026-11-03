@@ -230,20 +230,3 @@ def test_failed_appraisal_logs_what_the_model_said(db_url, caplog):
         asyncio.run(go())
     text = caplog.text
     assert "appraising 1 exchange" in text and "appraisal skipped" in text and "weather" in text
-
-
-def test_distress_adds_a_nudge_to_the_final_instruction(db_url):
-    import asyncio
-    from astrid.db import Database
-    from astrid.engine import Astrid
-    from conftest import FakeLLM, make_cfg
-
-    async def go():
-        cfg, db, llm = make_cfg(db_url), Database(db_url), FakeLLM()
-        await db.migrate()
-        llm.script("euryale", "i'm here. are you thinking about hurting yourself?")
-        eng = Astrid(cfg, db, llm)
-        await eng.reply(1, "lately i think everyone would be better off without me")
-        await db.close()
-        return llm.calls[0]["messages"][-1]["content"]
-    assert "988" in asyncio.run(go())
