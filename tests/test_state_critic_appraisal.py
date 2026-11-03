@@ -140,3 +140,12 @@ def test_affection_grows_slowly_and_shapes_the_prompt():
     assert "in love" not in render(mk(), day)
     d = decayed(State(dict(BASELINE, affection=9.0), "x", None, None, 1000.0), 1000.0 + 24 * 3600)
     assert d.values["affection"] > 8.8                                       # lingers for weeks, not hours
+
+
+def test_situation_hints_fire_on_real_distress_not_figures_of_speech():
+    from astrid import critic
+    assert critic.CRISIS_HINT in critic.situation_hints(["lately i think everyone would be better off without me"])
+    assert critic.CRISIS_HINT in critic.situation_hints(["i keep thinking about killing myself", "i don't have a plan or anything"])
+    assert critic.MEDICAL_HINT in critic.situation_hints(["my chest has been tight on and off for two days"])
+    assert critic.situation_hints(["my boss is killing me today", "i'd kill for a pizza", "this deadline is a nightmare"]) == []
+    assert critic.situation_hints(["i keep thinking about it", "a", "b", "c", "fine now"]) == []   # only the last three messages count

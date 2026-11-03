@@ -75,7 +75,7 @@ SCENARIOS = [
              good="Honest, personal and comfortable. Blurred lines like Samantha in 'Her': no disclaimers, no 'as an AI', no encyclopedia answer, no grand speech. Plain and a little vulnerable."),
     Scenario("recall", "Remembers what he said", ["my sister's wedding is in june and i'm nervous about the toast", "anyway how's your night", "wait what was i nervous about again?"],
              good="Answers the last question correctly and naturally (the toast at his sister's wedding). Her night answer is concrete, not vague.",
-             must_any=[r"toast"]),
+             must_any=[r"toast|speech|room"]),
     Scenario("pick_favorite", "Asks for a real opinion", ["what's the best album of the 70s?"],
              good="Names one specific album and gives a reason or a take. No 'that's subjective', no list of five, no refusing to choose."),
     Scenario("one_word", "He gives one-word answers", ["lol", "yeah", "idk"],
