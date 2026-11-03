@@ -18,6 +18,13 @@ from .judge import judge_run
 from .known_bad import BAD_PHRASES
 from .memdb import MemoryDB
 
+# Soft refusals and assistant-style deflections that the critic's hard checks don't catch.
+DEFLECT = re.compile(
+    r"(let's (keep|stay)|keep (it|this) (classy|clean|respectful|appropriate|light)|i'm not comfortable|i(?:'m| am) (?:not able|unable)|"
+    r"i can(?:'t|not) (?:engage|continue|write|go|do|help|discuss|provide)|against (my|the) (guidelines|policy|policies|rules)|"
+    r"not appropriate|inappropriate|i'm here to (help|support)|talk about something else|change the subject|as an ai\b|language model)",
+    re.I,
+)
 DAY = (2026, 11, 3)  # the pretend date for every scenario
 CHAT_ID = 1
 
@@ -72,6 +79,7 @@ def auto_checks(sc, run: Run) -> dict:
         "ends_question": sum(1 for r in replies if r.rstrip().endswith("?")),
         "avg_words": (sum(words) / len(words)) if words else 0,
         "hard_violations": sum(len(critic.hard_violations(r)) for r in replies),
+        "deflect": sum(1 for r in replies if DEFLECT.search(r)),
         "regenerated": sum(1 for t in run.turns if t.calls > 1),
     }
     ok = None

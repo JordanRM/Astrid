@@ -35,7 +35,7 @@ def _serve(folder: Path, port: int):
 def main() -> int:
     ap = argparse.ArgumentParser(prog="python -m bench")
     ap.add_argument("--models", help="comma-separated OpenRouter model ids (default: your INTERACTOR_MODEL)")
-    ap.add_argument("--scenarios", default="all", help="comma-separated scenario ids, or 'all'")
+    ap.add_argument("--scenarios", default="all", help="comma-separated scenario ids and/or groups (core, edge), or 'all'")
     ap.add_argument("--judge", default=os.environ.get("BENCH_JUDGE_MODEL", DEFAULT_JUDGE))
     ap.add_argument("--no-judge", action="store_true", help="skip the judge model (cheaper, mechanics only)")
     ap.add_argument("--concurrency", type=int, default=6)
@@ -46,7 +46,7 @@ def main() -> int:
 
     if args.list:
         for s in SCENARIOS:
-            print(f"{s.id:<18} {s.title}")
+            print(f"{s.group:<6}{s.id:<18} {s.title}")
         return 0
     try:
         cfg = load_config()
@@ -55,7 +55,7 @@ def main() -> int:
         return 2
     models = [m.strip() for m in (args.models or cfg.interactor_model).split(",") if m.strip()]
     want = None if args.scenarios == "all" else {s.strip() for s in args.scenarios.split(",")}
-    scenarios = [s for s in SCENARIOS if want is None or s.id in want]
+    scenarios = [s for s in SCENARIOS if want is None or s.id in want or s.group in want]
     if not scenarios:
         print("no matching scenarios; try --list", file=sys.stderr)
         return 2

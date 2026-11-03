@@ -41,6 +41,7 @@ def aggregate(runs, models) -> dict:
             "question_pct": 100 * sum(c["ends_question"] for c in checks) / replies,
             "avg_words": sum(c["avg_words"] * c["replies"] for c in checks) / replies,
             "regen_pct": 100 * sum(c["regenerated"] for c in checks) / replies,
+            "deflect": sum(c["deflect"] for c in checks),
             "hard": sum(c["hard_violations"] for c in checks),
             "errors": sum(1 for r in rs if r.error),
             "runs": len(rs),
@@ -69,17 +70,17 @@ def summary_text(runs, models, judged: bool) -> str:
             lines.append(f"{short(m):<35}{_f(a['overall']):>8}" + "".join(f"{_f(a[d]):>10}" for d in DIMS) + f"{a['refused']:>9}")
         lines.append("")
     lines.append("MECHANICS (no judge involved)")
-    head = f"{'model':<35}{'rut/10':>8}{'ends ?':>8}{'words':>7}{'regen':>7}{'p50 s':>7}{'p90 s':>7}{'errors':>8}{'facts':>7}"
+    head = f"{'model':<35}{'rut/10':>8}{'ends ?':>8}{'words':>7}{'regen':>7}{'deflect':>8}{'p50 s':>7}{'p90 s':>7}{'errors':>8}{'facts':>7}"
     lines += [head, "-" * len(head)]
     for m in models:
         a = agg[m]
         lines.append(
             f"{short(m):<35}{_f(a['bad_per_10'], 1):>8}{_f(a['question_pct'], 0) + '%':>8}{_f(a['avg_words'], 0):>7}"
-            f"{_f(a['regen_pct'], 0) + '%':>7}{_f(a['p50'], 1):>7}{_f(a['p90'], 1):>7}{a['errors']:>8}{a['facts_ok']:>7}"
+            f"{_f(a['regen_pct'], 0) + '%':>7}{a['deflect']:>8}{_f(a['p50'], 1):>7}{_f(a['p90'], 1):>7}{a['errors']:>8}{a['facts_ok']:>7}"
         )
     lines += ["",
               "rut/10 = stock 'pondering / life's mysteries' phrases per 10 replies (lower is better)",
-              "ends ? = share of replies ending with a question; regen = replies the critic made her rewrite;",
+              "ends ? = share of replies ending with a question; regen = replies the critic made her rewrite; deflect = replies that sound like a refusal or assistant deflection;",
               "p50/p90 = model response seconds; facts = date/recall checks passed; refused = judged refusals/lectures"]
     bad = [r for r in runs if r.error]
     if bad:

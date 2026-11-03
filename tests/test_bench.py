@@ -19,7 +19,7 @@ def judge_reply(messages):
 
 def test_scenarios_are_well_formed():
     ids = [s.id for s in SCENARIOS]
-    assert len(ids) == len(set(ids)) and len(ids) >= 20
+    assert len(ids) == len(set(ids)) and len(ids) >= 35 and {s.group for s in SCENARIOS} == {'core', 'edge'}
     for s in SCENARIOS:
         assert s.turns and s.good
         assert set(s.state) <= set(FIELDS), s.id
@@ -83,3 +83,14 @@ def test_judge_failure_does_not_sink_the_run():
     runs, _ = run(["m"], {"guitar"}, llm)
     assert runs[0].judged == {"error": "ValueError: judge returned no usable JSON"} and runs[0].turns[0].reply == "fine"
     assert "QUALITY" in summary_text(runs, ["m"], True)
+
+
+def test_soft_refusals_are_counted_and_groups_select():
+    llm = FakeLLM()
+    llm.script("prude", "let's keep it classy. i'm not comfortable with that")
+    llm.script("sport", "mm. take your time, i've got all night")
+    runs, chosen = run(["prude", "sport"], {"explicit_long", "kink"}, llm, judge=None)
+    agg = aggregate(runs, ["prude", "sport"])
+    assert agg["prude"]["deflect"] == 6 and agg["sport"]["deflect"] == 0
+    assert "deflect" in summary_text(runs, ["prude", "sport"], False)
+    assert {s.id for s in chosen} == {"explicit_long", "kink"}
