@@ -50,7 +50,7 @@ def test_render_reflects_state():
     s = mk(irritation=7, arousal=7, trust=1)
     s.mood, s.unresolved_tension, s.directive = "cold", "he dismissed her opinion", "stay curt"
     t = render(s, night)
-    assert "Tuesday November 3, 1:05 AM" in t
+    assert "Tuesday, November 3, 2026, 1:05 AM Eastern time" in t and "always know the exact" in t
     assert "don't trust Jordan much" in t and "genuinely irritated" in t and "turned on" in t
     assert "he dismissed her opinion" in t and "stay curt" in t
     assert "energy is low" in t                    # 6 - 3 at 1am
