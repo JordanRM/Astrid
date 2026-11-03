@@ -45,3 +45,15 @@ The first person to message the bot becomes its owner; everyone else is ignored.
 ## Tests
 
 `python -m pytest tests` needs a local PostgreSQL (see `tests/conftest.py` for the connection string) and runs the real database code against it, with the model and Telegram APIs mocked.
+
+## Test bench
+
+Plays 22 scripted conversations against any models through the real prompt stack, scores them with a judge model, and builds a blind side-by-side page. Run it on the VPS:
+
+    .venv/bin/python -m bench --models "sao10k/l3.1-euryale-70b,other/model"
+    .venv/bin/python -m bench --list            # scenarios
+    .venv/bin/python -m bench --no-judge        # skip the judge (mechanics only)
+    .venv/bin/python -m bench --serve           # then open http://<vps-ip>:8099/report.html
+
+Output lands in `bench/out/latest/`: `report.html` (blind picks), `summary.txt`, `transcripts.md`, `results.json`.
+Set `BENCH_JUDGE_MODEL` to change the judge (default `anthropic/claude-sonnet-5.5`). Flagged `/meh` replies live in `bench/known_bad.py`.

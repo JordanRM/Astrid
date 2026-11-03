@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 import requests
 
@@ -38,11 +39,12 @@ class Telegram:
     async def get_me(self):
         return await self.call("getMe")
 
-    async def get_updates(self, offset: int | None, poll_seconds: int = 30):
+    async def get_updates(self, offset: int | None, poll_seconds: int = 8):
+        # Short polls: if the connection silently dies, the worst stall is ~poll_seconds + 7, not a minute.
         params = {"timeout": poll_seconds, "allowed_updates": ["message"]}
         if offset is not None:
             params["offset"] = offset
-        return await self.call("getUpdates", params, timeout=poll_seconds + 15)
+        return await self.call("getUpdates", params, timeout=poll_seconds + 7)
 
     async def send_message(self, chat_id: int, text: str):
         return await self.call("sendMessage", {"chat_id": chat_id, "text": text})
@@ -132,6 +134,7 @@ class Bot:
             return
 
         chat_id = chat["id"]
+        picked_up = time.time()
         typing = asyncio.create_task(self._typing_loop(chat_id))
         try:
             reply = await self.engine.reply(chat_id, text)
@@ -145,11 +148,18 @@ class Bot:
             return
         finally:
             typing.cancel()
+        sending = time.time()
         try:
             await self.tg.send_message(chat_id, reply)
         except TelegramError as e:
             log.error("could not send reply: %s", e)
             return
+        sent = time.time()
+        sent_at = msg.get("date")
+        log.info(
+            "timing: waited %s in Telegram before pickup, reply %.1fs, send %.1fs",
+            f"{picked_up - sent_at:.1f}s" if sent_at else "?", sending - picked_up, sent - sending,
+        )
         self.engine.queue_appraisal(chat_id, text, reply)
 
     async def run(self):

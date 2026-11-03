@@ -62,9 +62,14 @@ class Astrid:
                 + [{"role": "system", "content": reminder}]
             )
 
+            prepared = time.monotonic()
             reply, calls = await self._generate(messages)
+            generated = time.monotonic()
             await self.db.add_message(chat_id, "assistant", reply, self.now())
-            log.info("reply ready in %.1fs (%d model call%s)", time.monotonic() - started, calls, "" if calls == 1 else "s")
+            log.info(
+                "reply ready in %.1fs (database %.1fs, model %.1fs, %d model call%s)",
+                time.monotonic() - started, prepared - started, generated - prepared, calls, "" if calls == 1 else "s",
+            )
             return reply
 
     async def _generate(self, messages: list[dict]) -> tuple[str, int]:
