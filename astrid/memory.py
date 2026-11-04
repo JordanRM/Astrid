@@ -3,7 +3,7 @@
 How it behaves, in human terms:
 - After each exchange something small may be kept (a fact, a moment, something left open). Most exchanges keep nothing.
 - A short, rewritable profile of Jordan is always in her head. Everything else comes back by cue: similar meaning,
-  how strong the moment was, how recent, and a little by mood. One memory that surfaces pulls in the ones linked to it.
+  how strong the moment was, how recent, and a little by mood. A memory that surfaces can bring one linked memory with it (one hop, never a chain).
 - Remembering strengthens a memory. Left alone, memories fade: details go first, then only a hazy sense is left.
   Strong moments (importance 8+) never fade.
 - Quiet stretches get summed up as an episode. Overnight, small related memories merge into a gist.
@@ -89,6 +89,53 @@ def mood_pulls(state) -> tuple[float, float]:
     return neg, pos
 
 
+class MoodLean:
+    """Which way her memory leans right now: toward old hurts (-1), toward good times (+1), or neither (0).
+
+    Not recomputed every turn. A lean is rolled from how she actually is (irritation, security, anything unresolved between
+    them, warmth, closeness) and then lingers for a while, the way a bad mood does. Most of the time there is none.
+    A bad lean only lets go once things are properly repaired; a good one fades when warmth drops or something sours it.
+    """
+
+    def __init__(self, rng):
+        self.rng = rng
+        self.lean = 0
+        self.strength = 0.0
+        self.until = 0.0
+        self._irritation = 0.0
+        self._tension = False
+
+    def _roll(self, state, now: float) -> None:
+        v = state.values
+        tension = bool(state.unresolved_tension)
+        p_bad = clamp((v["irritation"] - 3) / 6 + (5 - v["security"]) / 14 + (0.15 if tension else 0.0), 0, 0.7)
+        p_good = clamp((v["rapport"] + v["affection"] - 10) / 14, 0, 0.45) * (1.0 if v["irritation"] < 3 else 0.3)
+        r = self.rng.random()
+        if r < p_bad:
+            self.lean, self.strength = -1, 0.5 + 0.5 * self.rng.random()
+            self.until = now + self.rng.uniform(60, 240) * 60
+        elif r < p_bad + p_good:
+            self.lean, self.strength = 1, 0.5 + 0.5 * self.rng.random()
+            self.until = now + self.rng.uniform(45, 150) * 60
+        else:
+            self.lean, self.strength = 0, 0.0
+            self.until = now + self.rng.uniform(40, 120) * 60
+        self._irritation, self._tension = v["irritation"], tension
+
+    def current(self, state, now: float) -> tuple[float, float]:
+        """(pull toward bad memories, pull toward good ones), each 0..1."""
+        v = state.values
+        tension = bool(state.unresolved_tension)
+        shifted = (v["irritation"] - self._irritation >= 2.5) or (tension and not self._tension)
+        if now >= self.until or shifted:
+            self._roll(state, now)
+        elif self.lean < 0 and v["irritation"] < 2.5 and not tension:
+            self.lean, self.strength, self.until = 0, 0.0, now + self.rng.uniform(40, 120) * 60   # repaired: it lets go
+        elif self.lean > 0 and (v["irritation"] > 5 or v["rapport"] + v["affection"] < 8):
+            self.lean, self.strength, self.until = 0, 0.0, now + self.rng.uniform(40, 120) * 60   # the warmth went out of it
+        return (self.strength if self.lean < 0 else 0.0, self.strength if self.lean > 0 else 0.0)
+
+
 @dataclass
 class Recalled:
     row: dict
@@ -106,6 +153,7 @@ class Memory:
         self.embedder = embedder
         self.now = clock
         self.rng = rng or random.Random()
+        self.mood = MoodLean(self.rng)
         self.tz = ZoneInfo(cfg.timezone)
         self._rows: list[dict] = []
         self._mat: np.ndarray | None = None
@@ -184,7 +232,7 @@ class Memory:
         qv = np.asarray((await self.embedder.embed([query]))[0], dtype=np.float32)
         sims = self._mat @ qv
         gate = getattr(self.cfg, "memory_min_sim", 0) or self.embedder.min_sim
-        neg, pos = mood_pulls(state)
+        neg, pos = self.mood.current(state, now)
         aroused = state.values["arousal"] >= 4
         scored: list[tuple[float, int]] = []
         for i in live:
@@ -208,17 +256,18 @@ class Memory:
             scored.append((score, i))
         scored.sort(reverse=True)
         picked: list[Recalled] = [Recalled(self._rows[i], s) for s, i in scored[:max(1, limit - 1)]]
-        # spreading activation: what's linked to a memory that surfaced comes along a little
+        # One hop only: a memory that surfaced from the cue may bring along something it is linked to. What that one is
+        # linked to does not follow, and mood never starts a chain. Only from the strongest cued ones, and only sometimes.
         chosen = {r.row["id"] for r in picked}
         by_id = {r["id"]: r for r in self._rows if r["status"] == "active"}
         linked: dict[int, float] = {}
-        for r in list(picked):
+        for r in picked[:2]:
             for lid in r.row.get("links") or []:
                 other = by_id.get(lid)
-                if other and lid not in chosen and (not other["explicit"] or heat or aroused):
+                if other and lid not in chosen and (not other["explicit"] or heat or aroused) and self.rng.random() < 0.6:
                     linked[lid] = max(linked.get(lid, 0.0), r.score * 0.6 * (0.3 + 0.7 * min(1.0, effective_strength(other, now))))
-        for lid, s in sorted(linked.items(), key=lambda kv: -kv[1])[:2]:
-            picked.append(Recalled(by_id[lid], s, "link"))
+        for lid, s_ in sorted(linked.items(), key=lambda kv: -kv[1])[:1]:
+            picked.append(Recalled(by_id[lid], s_, "link"))
             chosen.add(lid)
         # now and then something just comes to mind, tied to how she feels
         if len(picked) < 2 and self.rng.random() < 0.12:
@@ -587,7 +636,7 @@ For each memory give:
 
 Profile: she also keeps a short running summary of Jordan as keyed facts (job, family, where he lives, big things). Use "profile" to set a fact (key is a short snake_case label, text is one short line), or to remove one that is no longer true. If a new fact replaces an old key, set that same key. Keep it to durable facts, not moments.
 
-Forget: if Jordan asks her to forget something, drop a topic or never mention it again, she agrees. Put it in "forget" with what it is about (one short phrase), and remove any profile fact about it. Nothing else is needed.
+Forget: if Jordan asks her to forget something, drop a topic or never mention it again, she agrees. Put it in "forget" with what it is about (one short phrase). Do NOT remove profile facts for this: she still knows it, she just knows he would rather it not come up. Only remove a profile fact if it is no longer true.
 
 Resolved: ids of "things left open" that this exchange closed.
 

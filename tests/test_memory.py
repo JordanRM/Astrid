@@ -10,7 +10,7 @@ from astrid import heated
 from astrid.db import Database
 from astrid.embed import Embedder, HashEmbedder, make_embedder
 from astrid.engine import Astrid
-from astrid.memory import (HAZY_BELOW, Memory, MemoryKeeper, effective_strength, is_hazy, mood_pulls, when_text)
+from astrid.memory import (HAZY_BELOW, Memory, MoodLean, MemoryKeeper, effective_strength, is_hazy, mood_pulls, when_text)
 from astrid.state import BASELINE, PRESETS, State
 
 NOW = 1_800_000_000.0
@@ -165,19 +165,19 @@ def test_a_repeated_memory_is_reinforced_not_duplicated(db_url):
     assert out["saved"] == 0 and len(rows) == 1 and rows[0]["importance"] == 5
 
 
-def test_forget_that_leaves_a_memory_with_a_note_and_drops_the_fact(db_url):
+def test_forget_that_leaves_a_memory_with_a_note_and_keeps_the_fact(db_url):
     async def go():
         c, db, llm, mem = mk(db_url)
         await db.migrate()
         await db.profile_put("ex", "went through a rough breakup last year", 5, NOW)
-        llm.script("r1", extraction(forget=[{"about": "his breakup"}], profile=[{"op": "remove", "key": "ex"}]))
+        llm.script("r1", extraction(forget=[{"about": "his breakup"}]))
         await mem.extract([("forget I told you about my breakup", "ok. dropped.")], [], NOW)
         rows, prof = await db.load_memories(), await db.profile_list()
         await db.close()
         return rows, prof
     rows, prof = run(go())
     assert len(rows) == 1 and "asked me to drop his breakup" in rows[0]["text"] and "wouldn't like it brought up" in rows[0]["text"]
-    assert all(f["key"] != "ex" for f in prof)                                       # no hidden off-limits flag, just a memory
+    assert any(f["key"] == "ex" for f in prof)                                       # she still knows it; no hidden off-limits flag
 
 
 def test_loose_ends_get_resolved_and_bad_model_output_is_harmless(db_url):
@@ -244,7 +244,7 @@ def test_linked_memories_come_along_and_faded_ones_are_hazy(db_url):
         return linked, out, text
     linked, out, text = run(go())
     assert any(links for links in linked.values())
-    assert len(out) >= 2 and {r.via for r in out} <= {"cue", "link"}
+    assert 1 <= len(out) <= 3 and {r.via for r in out} <= {"cue", "link"}
     assert "hazy" in text and "something about" in text and "garage" not in text
 
 
@@ -259,23 +259,74 @@ def test_strength_gain_is_not_stacked_within_an_hour(db_url):
     assert run(go())["recalled_count"] == 1
 
 
-def test_mood_colors_what_surfaces_modestly(db_url):
+def test_mood_lean_lingers_lets_go_when_repaired_and_is_usually_absent():
+    rng = random.Random(5)
+    # an ordinary calm day: almost never leaning either way
+    ordinary = [MoodLean(random.Random(i)).current(calm(), NOW) for i in range(200)]
+    assert sum(1 for n, p in ordinary if n or p) < 30
+    # annoyed: often leans toward old hurts, and keeps leaning for a while rather than flickering turn to turn
+    angry = calm()
+    angry.values.update(irritation=8, security=3)
+    angry.unresolved_tension = "he brushed off your opinion"
+    leaned = 0
+    for i in range(100):
+        m = MoodLean(random.Random(i))
+        first = m.current(angry, NOW)
+        if first[0]:
+            leaned += 1
+            assert all(m.current(angry, NOW + k * 600)[0] == first[0] for k in range(1, 4))   # same lean 30 minutes later
+    assert 40 < leaned < 100                                                                 # likely, but not certain
+    # repaired: the bad lean lets go even though its timer hadn't run out
+    m = MoodLean(random.Random(0))
+    for i in range(50):
+        m = MoodLean(random.Random(i))
+        if m.current(angry, NOW)[0]:
+            break
+    healed = calm()
+    healed.values.update(irritation=1)
+    assert m.current(healed, NOW + 600) == (0.0, 0.0)
+    # warm: leans toward good times only sometimes, and the warmth souring ends it
+    warm = calm()
+    warm.values.update(rapport=9, affection=7)
+    goods = [MoodLean(random.Random(i)) for i in range(100)]
+    pulled = [g for g in goods if g.current(warm, NOW)[1]]
+    assert 10 < len(pulled) < 70
+    sour = calm()
+    sour.values.update(irritation=6, rapport=4, affection=3)
+    assert pulled[0].current(sour, NOW + 300)[1] == 0.0
+
+
+def test_a_mood_only_nudges_recall_it_does_not_invent_it(db_url):
     slight = item("he brushed off my opinion on the album and called it pretentious, and it stung", 5, valence=-0.8, emotion="stung")
-    sweet = item("he said my opinion on the album made him hear it differently, and it felt good", 5, valence=0.8, emotion="warm")
-    async def score(entry, mood):
-        c, db, llm, mem = await seeded(db_url + "", [entry])
-        out = (await mem.recall(["my opinion on the album"], mood, False, NOW + DAY))[0].score
+    async def score(mood_lean):
+        c, db, llm, mem = await seeded(db_url, [slight])
+        mem.mood.current = lambda state, now: mood_lean
+        out = await mem.recall(["my opinion on the album"], calm(), False, NOW + DAY), await mem.recall(["what's for supper"], calm(), False, NOW + 2 * DAY)
         await db.execute("truncate astrid.memories restart identity")
         await db.close()
         return out
+    (plain, none1), (leaning, none2) = run(score((0.0, 0.0))), run(score((1.0, 0.0)))
+    assert leaning[0].score > plain[0].score and leaning[0].score - plain[0].score < 0.1
+    assert none1 == [] == none2                                                               # a bad mood alone doesn't dredge anything up
+
+
+def test_linked_memories_never_chain(db_url):
     async def go():
-        angry, warm = calm(), calm()
-        angry.values.update(irritation=8, security=3)
-        warm.values.update(rapport=9, affection=7)
-        return (await score(slight, calm()), await score(slight, angry), await score(sweet, calm()), await score(sweet, warm))
-    s0, s1, w0, w1 = run(go())
-    assert s1 > s0 and w1 > w0                       # an annoyed mood drags up old slights, a warm one good times
-    assert s1 - s0 < 0.1 and w1 - w0 < 0.1           # but only a nudge; what's actually being talked about still dominates
+        c, db, llm, mem = await seeded(db_url, [
+            item("his brother is getting married in june and he has to give the wedding speech", 5),
+            item("the garage compressor keeps tripping the breaker and he is fed up", 5),
+            item("he mentioned the old truck needs a new transmission before winter", 5)])
+        a, b, c3 = sorted(mem._rows, key=lambda r: r["id"])
+        a["links"], b["links"], c3["links"] = [b["id"]], [a["id"], c3["id"]], [b["id"]]       # a - b - c, but a and c unrelated
+        seen = set()
+        for k in range(40):
+            mem.rng = random.Random(k)
+            for r in await mem.recall(["wedding speech"], calm(), False, NOW + (k + 1) * 7200):
+                seen.add((r.row["id"], r.via))
+        await db.close()
+        return a["id"], b["id"], c3["id"], seen
+    a, b, c3, seen = run(go())
+    assert (a, "cue") in seen and (b, "link") in seen and not any(i == c3 and v == "link" for i, v in seen)
 
 
 def test_explicit_memories_are_quiet_in_everyday_talk_but_come_back_when_heated_or_strongly_cued(db_url):
