@@ -2,3 +2,5 @@ psycopg[binary]>=3.2,<4
 requests>=2.31
 python-dotenv>=1.0
 tzdata
+numpy>=1.26
+fastembed>=0.3

@@ -43,7 +43,9 @@ _CONDITIONAL = re.compile(r"\b(?:i'd|would|imagine|picturing|picture|want|wanna|
 _NARR_I = re.compile(rf"\bi (?:{_VERBS})\b", re.I)
 _NARR_AND = re.compile(rf"\band (?:{_VERBS})\b", re.I)
 # Claims about earlier scenes or a physical setup that were never established.
-_INVENTED = re.compile(r"\b(?:still (?:on my|on your|in the|dripping|wearing)|from before|where we left off|like last time|as we were|all (?:morning|day|night|week)|since (?:this morning|yesterday|last night))\b", re.I)
+_INVENTED_TODAY = re.compile(r"\b(?:still (?:on my|on your|in the|dripping|wearing)|all (?:morning|day|night|week)|since this morning)\b", re.I)
+_INVENTED_BEFORE = re.compile(r"\b(?:from before|where we left off|like last time|as we were|since (?:yesterday|last night))\b", re.I)
+_INVENTED = re.compile(_INVENTED_TODAY.pattern + "|" + _INVENTED_BEFORE.pattern, re.I)
 # He's slowing things down or savoring something.
 _SLOW = re.compile(r"\b(slow(?:er|ly)?(?: it)?(?: down)?|wait|hold on|hang on|too fast|not so fast|take it easy|savor\w*|i like thinking|stay on that|just stay)\b", re.I)
 # He's telling her what he's actually doing or feeling right now (the real layer).
@@ -89,10 +91,13 @@ def narrated(reply: str) -> int:
     return total
 
 
-def slips(reply: str, opener: bool = False) -> list[str]:
-    """Hard problems that make the reply get rewritten once. On a fresh start she also can't claim a day or earlier scenes."""
+def slips(reply: str, opener: int | bool = 0) -> list[str]:
+    """Hard problems that make the reply get rewritten once.
+    opener 1: nothing has been said yet today, so she can't claim a day or a scene already in progress.
+    opener 2 (or True): nothing has ever been said, so she can't claim earlier scenes either."""
     out = []
-    if opener and _INVENTED.search(reply or ""):
+    level = 2 if opener is True else int(opener or 0)
+    if (level >= 2 and _INVENTED.search(reply or "")) or (level == 1 and _INVENTED_TODAY.search(reply or "")):
         out.append("claimed earlier scenes or a day she's had (thinking about him all day, from before); nothing has happened yet")
     if _SLIP.search(reply or ""):
         out.append("brought real-world distance, location or her own hands into the scene")

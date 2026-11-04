@@ -11,7 +11,9 @@ from .config import ConfigError, load_config
 from .curiosity import Wanderer, format_thoughts
 from .search import Brave, SearchError
 from .db import Database
+from .embed import make_embedder
 from .engine import Astrid
+from .memory import Memory, MemoryKeeper, effective_strength, is_hazy, when_text
 from .llm import LLMError, OpenRouter
 from .net import force_ipv4
 from .opinions import format_opinions
@@ -26,6 +28,9 @@ USAGE = """usage: python -m astrid [command]
   state    show her mood and numbers; set them for testing:  state preset heated  |  state set arousal=8 trust=7
   thoughts list what she's read and thought about on her own time
   wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire, heat)
+  memories list what she remembers, strongest first; or search by meaning:  memories "his brother"
+  profile  show what she knows about you; change it:  profile set job="..."  |  profile remove job
+  consolidate  run the overnight tidy now (fade weak memories, merge small ones, tidy the profile)
   flags    list replies you flagged with /meh in Telegram
   reset    forget the conversation and put her back to a first meeting (add --yes)"""
 
@@ -69,7 +74,9 @@ async def _run(cfg) -> None:
     db = Database(cfg.database_url)
     await db.migrate()
     llm = OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url)
-    engine = Astrid(cfg, db, llm)
+    memory = Memory(cfg, db, llm, make_embedder(cfg.embed_model))
+    engine = Astrid(cfg, db, llm, memory=memory)
+    keeper = MemoryKeeper(cfg, db, memory)
     bot = Bot(cfg, db, engine, Telegram(cfg.telegram_token, cfg.telegram_api_base))
     wanderer = Wanderer(cfg, db, llm, Brave(cfg.brave_api_key)) if cfg.brave_api_key else None
     if wanderer is None:
@@ -78,14 +85,19 @@ async def _run(cfg) -> None:
 
     def stop():
         bot.stop()
+        keeper.stop()
         if wanderer:
             wanderer.stop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop)
     wandering = asyncio.create_task(wanderer.loop()) if wanderer else None
+    upkeep = asyncio.create_task(keeper.loop())
+    warming = asyncio.create_task(memory.warm())
     try:
         await bot.run()
     finally:
+        upkeep.cancel()
+        warming.cancel()
         if wandering:
             wandering.cancel()
         await db.close()
@@ -205,6 +217,35 @@ def main() -> int:
                     print(f"  read: {src['title']} <{src['url']}>")
             elif row is None:
                 print("nothing came of it this time (see the log lines above)")
+        asyncio.run(go())
+        return 0
+    if cmd in ("memories", "profile", "consolidate"):
+        async def go():
+            db = Database(cfg.database_url)
+            await db.migrate()
+            now = time.time()
+            mem = Memory(cfg, db, OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url), make_embedder(cfg.embed_model))
+            if cmd == "profile":
+                args = sys.argv[2:]
+                if args and args[0] == "set" and len(args) > 1 and "=" in args[1]:
+                    key, _, text = " ".join(args[1:]).partition("=")
+                    print(await db.profile_put(key.strip().lower().replace(" ", "_"), text.strip().strip('"'), 6, now))
+                elif args and args[0] == "remove" and len(args) > 1:
+                    print("removed" if await db.profile_remove(args[1], now) else "no such key")
+                await mem.load()
+                for f in await db.profile_list():
+                    print(f"[{f['key']}] {f['text']}" + (f"   ({len(f['history'])} earlier wording{'s' if len(f['history']) != 1 else ''})" if f["history"] else ""))
+            elif cmd == "consolidate":
+                print(await mem.consolidate(now))
+            else:
+                q = " ".join(sys.argv[2:])
+                print(f"embedder: {mem.embedder.name}")
+                for score, m in await mem.search(q, now, 20):
+                    eff = effective_strength(m, now)
+                    tag = "permanent" if m["permanent"] else ("hazy" if is_hazy(m, now) else f"{eff:.2f}")
+                    print(f"#{m['id']} [{m['kind']}{' explicit' if m['explicit'] else ''}] imp {m['importance']:.0f} {tag} "
+                          f"{when_text(m['created_at'], now, mem.tz)}" + (f" sim {score:.2f}" if q else "") + f": {m['text']}")
+            await db.close()
         asyncio.run(go())
         return 0
     if cmd == "flags":

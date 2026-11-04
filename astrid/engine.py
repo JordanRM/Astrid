@@ -26,11 +26,12 @@ def _ago(seconds: float) -> str:
 
 
 class Astrid:
-    def __init__(self, cfg: Config, db, llm, clock=time.time, rng: random.Random | None = None):
+    def __init__(self, cfg: Config, db, llm, clock=time.time, rng: random.Random | None = None, memory=None):
         self.rng = rng or random.Random()
         self.cfg = cfg
         self.db = db
         self.llm = llm
+        self.memory = memory
         self.now = clock
         self.tz = ZoneInfo(cfg.timezone)
         self._reply_locks: dict[int, asyncio.Lock] = {}
@@ -41,6 +42,25 @@ class Astrid:
     def _lock_for(self, chat_id: int) -> asyncio.Lock:
         return self._reply_locks.setdefault(chat_id, asyncio.Lock())
 
+    async def _window(self, chat_id: int, now: float) -> list:
+        """What she can see of the conversation: roughly the last couple of hours, but never fewer than a handful of messages."""
+        rows = await self.db.recent_messages(chat_id, self.cfg.history_max)
+        keep = [m for m in rows if m.ts >= now - self.cfg.history_minutes * 60]
+        return keep if len(keep) >= self.cfg.history_limit else rows[-self.cfg.history_limit:]
+
+    async def _remember(self, state, user_lines, assistant_lines, heat: bool, now: float, local):
+        """(profile block, memories that came to mind, summary of earlier today). Memory trouble never stops a reply."""
+        if self.memory is None:
+            return None, None, None
+        try:
+            facts = await self.memory.profile_facts()
+            recalled = await self.memory.recall(user_lines[-3:] + assistant_lines[-1:], state, heat, now)
+            return (persona.profile_block(facts) if facts else None, self.memory.render(recalled, now),
+                    await self.memory.summary_text(local.date()))
+        except Exception as e:
+            log.warning("memory unavailable for this reply: %s", e)
+            return None, None, None
+
     async def reply(self, chat_id: int, text: str) -> str:
         """Store Jordan's message, write her reply, store it, and return it."""
         async with self._lock_for(chat_id):
@@ -48,7 +68,7 @@ class Astrid:
             now = self.now()
             await self.db.add_message(chat_id, "user", text, now)
             state = decayed(await self.db.get_state(), now)
-            history = await self.db.recent_messages(chat_id, self.cfg.history_limit)
+            history = await self._window(chat_id, now)
 
             gap_note = None
             if len(history) >= 2 and now - history[-2].ts > 30 * 60:
@@ -58,6 +78,10 @@ class Astrid:
             user_lines = [m.content for m in history if m.role == "user"]
             local = datetime.fromtimestamp(now, self.tz)
             heat = heated.is_heated(state, user_lines)
+            # 0: mid-conversation. 1: nothing said yet today. 2: nothing ever said (so no earlier scenes can be claimed either).
+            talked_today = any(datetime.fromtimestamp(m.ts, self.tz).date() == local.date() for m in history[:-1])
+            fresh = 0 if talked_today else (1 if len(history) > 1 else 2)
+            profile_text, memory_text, summary_text = await self._remember(state, user_lines, assistant_lines, heat, now, local)
             if heat:
                 # Not walled off: views she holds and her own reading about sex and desire can still come through.
                 # Everyday trivia stays out so it can't pull her out of the scene.
@@ -67,15 +91,19 @@ class Astrid:
                 ideas = curiosity.ideas(explicit_thoughts, in_mind, now)
                 if in_mind or ideas:
                     await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind] + [t["id"] for t in ideas])
-                opener = ("This conversation has only just started, so nothing has happened between you here yet. Don't refer to "
-                          "earlier scenes, a day you've had, or act as if you're already in the middle of something. If you want him, say so as "
-                          "wanting, and let him respond." if len(history) <= 2 else None)
-                system = persona.build_system(
+                opener = {
+                    2: "This conversation has only just started, so nothing has happened between you here yet. Don't refer to earlier "
+                       "scenes, a day you've had, or act as if you're already in the middle of something. If you want him, say so as "
+                       "wanting, and let him respond.",
+                    1: "You haven't talked yet today. Don't act as if you're in the middle of something, or claim you've been thinking "
+                       "about him all day or carrying a scene on from earlier. If you want him, say so as wanting, and let him respond.",
+                }.get(fresh)
+                reminder = heated.build_reminder(heated.hints(assistant_lines, user_lines), heated.texts_guidance(self.rng))
+                context = persona.build_context(
                     render(state, local), "\n".join(x for x in (gap_note, opener) if x) or None, examples.render(heated.choose(self.rng)),
                     opinions.render(known), "\n\n".join(x for x in (curiosity.render(in_mind, now), curiosity.render_ideas(ideas)) if x) or None,
-                    rules=heated.RULES,
-                )
-                reminder = heated.build_reminder(heated.hints(assistant_lines, user_lines), heated.texts_guidance(self.rng))
+                    memory_text, summary_text, reminder)
+                static = persona.build_static(heated.RULES, profile_text)
             else:
                 hints = critic.reply_hints(assistant_lines)
                 recent_user = user_lines[-2:]
@@ -87,20 +115,20 @@ class Astrid:
                 if in_mind:
                     await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
                 has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)
-                system = persona.build_system(
+                reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
+                context = persona.build_context(
                     render(state, local), gap_note,
                     examples.render(examples.choose(state, local, self.rng, extra={"inner_life" if has_inner else "no_inner_life"})),
-                    opinions.render(known), curiosity.render(in_mind, now),
-                )
-                reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
+                    opinions.render(known), curiosity.render(in_mind, now), memory_text, summary_text, reminder)
+                static = persona.build_static(None, profile_text)
             messages = (
-                [{"role": "system", "content": system}]
+                [{"role": "system", "content": static}]
                 + [{"role": m.role, "content": m.content} for m in history]
-                + [{"role": "system", "content": reminder}]
+                + [{"role": "system", "content": context}]
             )
 
             prepared = time.monotonic()
-            reply, calls = await self._generate(messages, heat, heat and len(history) <= 2)
+            reply, calls = await self._generate(messages, heat, fresh if heat else 0)
             reply = texting.normalize(reply) or reply
             generated = time.monotonic()
             await self.db.add_message(chat_id, "assistant", reply, self.now())
@@ -111,7 +139,7 @@ class Astrid:
             )
             return reply
 
-    async def _generate(self, messages: list[dict], heat: bool = False, opener: bool = False) -> tuple[str, int]:
+    async def _generate(self, messages: list[dict], heat: bool = False, opener: int = 0) -> tuple[str, int]:
         model = (self.cfg.heated_model or self.cfg.interactor_model) if heat else self.cfg.interactor_model
         kwargs = dict(temperature=self.cfg.heated_temperature if heat else self.cfg.temperature,
                       max_tokens=self.cfg.heated_max_tokens if heat else self.cfg.max_reply_tokens)
@@ -146,11 +174,25 @@ class Astrid:
         while self._pending:
             batch, self._pending = self._pending, []
             chat_id = batch[-1][0]
-            await self.appraise_batch(chat_id, [(u, r) for _, u, r in batch])
+            exchanges = [(u, r) for _, u, r in batch]
+            await asyncio.gather(self.appraise_batch(chat_id, exchanges), self.remember_batch(chat_id, exchanges))
 
     def cancel_background(self) -> None:
         if self._worker is not None and not self._worker.done():
             self._worker.cancel()
+
+    async def remember_batch(self, chat_id: int, exchanges: list[tuple[str, str]]) -> None:
+        """Decide what from these exchanges to keep. Never raises."""
+        if self.memory is None:
+            return
+        try:
+            history = await self.db.recent_messages(chat_id, 8 + 2 * len(exchanges))
+            earlier = [(m.role, m.content) for m in history[: max(0, len(history) - 2 * len(exchanges))]]
+            await self.memory.extract(exchanges, earlier, self.now())
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("memory skipped: %s", e)
 
     async def appraise(self, chat_id: int, user_text: str, reply_text: str) -> None:
         await self.appraise_batch(chat_id, [(user_text, reply_text)])

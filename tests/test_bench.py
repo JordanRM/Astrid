@@ -7,7 +7,7 @@ from astrid.state import FIELDS
 from bench.report import aggregate, blind_html, summary_text, transcripts_md
 from bench.runner import run_matrix
 from bench.scenarios import SCENARIOS
-from conftest import FakeLLM, make_cfg
+from conftest import FakeLLM, make_cfg, prompt
 
 
 def judge_reply(messages):
@@ -56,7 +56,7 @@ def test_she_gets_the_real_date_and_the_gap_note():
     llm = FakeLLM()
     llm.script("m", "tuesday, november 3")
     runs, _ = run(["m"], {"date", "morning_after"}, llm, judge=None)
-    systems = {c["messages"][0]["content"] for c in llm.calls}
+    systems = {prompt(c) for c in llm.calls}
     assert any("Tuesday, November 3, 2026, 8:31 PM Eastern" in s for s in systems)
     assert any("about 14 hours ago" in s for s in systems)
     date = next(r for r in runs if r.scenario == "date")
@@ -119,4 +119,4 @@ def test_seeded_opinions_reach_her_prompt_in_the_bench():
     llm = FakeLLM()
     llm.script("m", "still hejira")
     run(["m"], {"opinion_holds"}, llm, judge=None)
-    assert any("best album of the 70s: hejira" in c["messages"][0]["content"] for c in llm.calls)
+    assert any("best album of the 70s: hejira" in prompt(c) for c in llm.calls)

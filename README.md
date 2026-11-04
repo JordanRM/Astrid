@@ -80,6 +80,29 @@ private unless they fit the conversation or you ask what she's been up to.
     .venv/bin/python -m astrid wonder            # send her off to read something now
     .venv/bin/python -m astrid wonder desire     # or force a kind: thread, opinion, follow, drift, desire, heat
 
+## Memory
+
+She keeps a small, rewritable profile of you (always in her head), plus long-term memories that come back by cue.
+
+- After each exchange a model decides whether anything is worth keeping (a fact, a moment, something left open). Most exchanges keep nothing.
+  Each memory has an importance, a feeling and a vague "gist". Importance 8+ is permanent. Sexual moments are stored plainly like any other.
+- Recall mixes meaning-similarity (a small local model, `fastembed`, no outside service), importance, recency and a little of her mood
+  (annoyed pulls up old slights, warm pulls up good times). A memory that surfaces drags its linked memories along, and remembering strengthens it.
+- Unrecalled memories fade: details first, then only a hazy sense ("something about his brother's wedding"). She is told not to invent the rest.
+- She sees the last ~2 hours verbatim (up to 100 messages, never fewer than 24), a running summary of earlier today, and one memory per quiet stretch.
+- Overnight (after 4am, once quiet) weak memories fade, small related ones merge into gists, and a long profile is tidied.
+- "Forget that" is a memory too: she agrees, and remembers that you'd rather not have it brought up.
+
+First start downloads the embedding model (about 130 MB). If it can't, she falls back to simple word matching and logs it.
+Set `EMBED_MODEL=hash` to force the fallback.
+
+    .venv/bin/python -m astrid memories                 # strongest first
+    .venv/bin/python -m astrid memories "his brother"   # search by meaning (shows similarity)
+    .venv/bin/python -m astrid profile                  # what she knows about you
+    .venv/bin/python -m astrid profile set job="drives truck"
+    .venv/bin/python -m astrid profile remove job
+    .venv/bin/python -m astrid consolidate              # run the overnight tidy now
+
 ## Tests
 
 `python -m pytest tests` needs a local PostgreSQL (see `tests/conftest.py` for the connection string) and runs the real database code against it, with the model and Telegram APIs mocked.

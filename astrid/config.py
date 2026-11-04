@@ -19,7 +19,10 @@ class Config:
     thinking_model: str
     owner_telegram_id: int | None = None
     timezone: str = "America/Toronto"
-    history_limit: int = 24
+    history_limit: int = 24         # the smallest recent window she always sees
+    history_minutes: int = 120      # she sees everything from roughly the last two hours...
+    history_max: int = 100          # ...up to this many messages
+    embed_model: str = ""           # empty: BAAI/bge-small-en-v1.5; "hash" forces the simple word-matching fallback
     max_reply_tokens: int = 350
     temperature: float = 0.9
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
@@ -79,4 +82,5 @@ def load_config(env=None) -> Config:
         provider_sort=_provider_sort(env),
         brave_api_key=_first(env, "BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"),
         heated_model=_first(env, "HEATED_MODEL"),
+        embed_model=_first(env, "EMBED_MODEL"),
     )

@@ -4,7 +4,7 @@ import json
 from astrid.db import Database
 from astrid.engine import Astrid
 from astrid.state import BASELINE
-from conftest import FakeLLM, make_cfg
+from conftest import FakeLLM, make_cfg, prompt
 
 APPRAISAL = json.dumps({
     "deltas": {"irritation": 1.5, "trust": -0.5}, "mood": "annoyed",
@@ -31,7 +31,7 @@ def test_reply_stores_both_sides_and_prompt_has_state(db_url):
     out, msgs, calls = asyncio.run(go())
     assert out == "what're you playing?"
     assert [(m.role, m.content) for m in msgs] == [("user", "playing guitar"), ("assistant", "what're you playing?")]
-    sysmsg = calls[0]["messages"][0]["content"]
+    sysmsg = prompt(calls[0])
     assert calls[0]["model"] == "euryale" and calls[0]["messages"][-2] == {"role": "user", "content": "playing guitar"}
     assert "You are Astrid" in sysmsg and "Eastern time" in sysmsg and "warm toward Jordan" in sysmsg
     last = calls[0]["messages"][-1]
@@ -75,7 +75,7 @@ def test_critic_hints_and_gap_note_reach_the_prompt(db_url):
         llm.script("euryale", "fine")
         await a.reply(1, "back again")
         await db.close()
-        return llm.calls[0]["messages"][0]["content"], llm.calls[0]["messages"][-1]["content"]
+        return prompt(llm.calls[0]), llm.calls[0]["messages"][-1]["content"]
     sysmsg, reminder = asyncio.run(go())
     assert "ended with a question" in reminder                      # habit hints ride in the final reminder
     assert "previous message before this one was about 5 hours ago" in sysmsg
@@ -93,7 +93,7 @@ def test_appraisal_updates_state_and_next_reply_feels_it(db_url):
         st = await db.get_state()
         t[0] += 600                                   # ten minutes later
         await a.reply(1, "hello?")
-        sysmsg = llm.calls[-1]["messages"][0]["content"]
+        sysmsg = prompt(llm.calls[-1])
         hist = await db.fetch("select cause, deltas from astrid.state_history")
         await db.close()
         return st, sysmsg, hist, [c["model"] for c in llm.calls]
@@ -133,7 +133,7 @@ def test_irritation_cools_over_the_day(db_url):
         await a.appraise(1, "you're useless", r)
         t[0] += 16 * 3600                             # two half-lives later
         await a.reply(1, "morning")
-        sysmsg = llm.calls[-1]["messages"][0]["content"].split("How you are right now:")[1]   # her state, not the example bank
+        sysmsg = prompt(llm.calls[-1]).split("How you are right now:")[1]   # her state, not the example bank
         await db.close()
         return sysmsg
     sysmsg = asyncio.run(go())

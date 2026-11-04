@@ -10,7 +10,7 @@ from astrid.db import Database
 from astrid.engine import Astrid
 from astrid.state import BASELINE, State, decayed, render
 from astrid.config import Config
-from conftest import FakeLLM, make_cfg
+from conftest import FakeLLM, make_cfg, prompt
 
 TZ = ZoneInfo("America/Toronto")
 
@@ -135,7 +135,7 @@ def test_reply_is_lowercased_and_sees_examples_and_relevant_views(db_url):
         reply = await Astrid(cfg, db, llm, rng=random.Random(3)).reply(1, "best album of the 70s?")
         stored = (await db.recent_messages(1, 5))[-1].content
         await db.close()
-        return reply, stored, llm.calls[0]["messages"][0]["content"]
+        return reply, stored, prompt(llm.calls[0])
     reply, stored, system = asyncio.run(go())
     assert reply == stored == "hejira. still."
     assert "Views you've already formed" in system and "best album of the 70s: hejira" in system and "Examples of your voice" in system
@@ -324,9 +324,9 @@ def test_heated_reply_uses_heated_prompt_model_and_leaves_out_everyday_material(
     hot, cool, llm = asyncio.run(go())
     first, second = llm.calls[0], llm.calls[-1]
     assert first["model"] == "spicy" and first["max_tokens"] == 500 and first["temperature"] == 1.0
-    sysmsg = first["messages"][0]["content"]
+    sysmsg = prompt(first)
     assert "middle of something heated" in sysmsg and "lanark founding" not in sysmsg and "Views you've already formed" not in sysmsg
-    assert second["model"] == "plain" and "middle of something heated" not in second["messages"][0]["content"]
+    assert second["model"] == "plain" and "middle of something heated" not in prompt(second)
     assert hot.startswith("i'd take")
 
 
@@ -387,7 +387,7 @@ def test_heated_mode_still_surfaces_her_explicit_reading_and_held_views(db_url):
         llm = FakeLLM()
         await Astrid(cfg, db, llm).reply(1, "edging builds intensity, my cock is aching")
         await db.close()
-        return llm.calls[0]["messages"][0]["content"]
+        return prompt(llm.calls[0])
     sysmsg = asyncio.run(go())
     assert "why edging builds intensity" in sysmsg and "worth it when the build is slow" in sysmsg and "lanark founding" not in sysmsg
 
@@ -424,7 +424,7 @@ def test_a_fresh_conversation_cant_open_in_the_middle_of_a_scene(db_url):
         await Astrid(cfg, db, llm).reply(1, "Hey")
         await Astrid(cfg, db, llm).reply(1, "who are you")
         await db.close()
-        return [c["messages"][0]["content"] for c in llm.calls]
+        return [prompt(c) for c in llm.calls]
     first, second = asyncio.run(go())
     assert "only just started" in first and "only just started" not in second
 
@@ -476,7 +476,7 @@ def test_ideas_come_from_sexual_reading_retire_and_reach_the_heated_prompt(db_ur
             await Astrid(cfg, db, llm).reply(1, "my cock is hard")
         rows = await db.list_thoughts()
         await db.close()
-        return [c["messages"][0]["content"] for c in llm.calls], rows[0]["surfaced"]
+        return [prompt(c) for c in llm.calls], rows[0]["surfaced"]
     prompts, surfaced = asyncio.run(go())
     assert "stay on one spot much longer" in prompts[0] and "stay on one spot much longer" not in prompts[3] and surfaced == 3
 

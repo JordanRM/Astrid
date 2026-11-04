@@ -256,10 +256,106 @@ class Database:
 
         await self._run(op)
 
+    # ---- messages for summaries ----
+    async def last_chat_id(self) -> int | None:
+        row = await self.fetchrow("select chat_id from astrid.messages order by id desc limit 1")
+        return row["chat_id"] if row else None
+
+    async def messages_after(self, chat_id: int, after_id: int, until_ts: float | None = None, limit: int = 400,
+                             since_ts: float | None = None) -> list[dict]:
+        rows = await self.fetch(
+            "select id, role, content, extract(epoch from created_at)::float8 as ts from astrid.messages "
+            "where chat_id = %s and id > %s and (%s::float8 is null or created_at < to_timestamp(%s)) "
+            "and (%s::float8 is null or created_at >= to_timestamp(%s)) order by id asc limit %s",
+            (chat_id, after_id, until_ts, until_ts, since_ts, since_ts, limit),
+        )
+        return rows
+
+    # ---- memories ----
+    _MEM_COLS = ("id, extract(epoch from created_at)::float8 as created_at, kind, text, gist, importance, emotion, valence, "
+                 "explicit, strength, permanent, recalled_count, extract(epoch from last_recalled_at)::float8 as last_recalled_at, "
+                 "embedding, embed_model, links, status, resolved")
+
+    async def load_memories(self, include_inactive: bool = False) -> list[dict]:
+        where = "" if include_inactive else "where status = 'active'"
+        return await self.fetch(f"select {self._MEM_COLS} from astrid.memories {where} order by id asc")
+
+    async def add_memory(self, m: dict, now: float) -> int:
+        row = await self.fetchrow(
+            "insert into astrid.memories (created_at, kind, text, gist, importance, emotion, valence, explicit, strength, permanent, "
+            "embedding, embed_model, links) values (to_timestamp(%s), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::real[], %s, %s::bigint[]) returning id",
+            (m.get("created_at") or now, m["kind"], m["text"], m.get("gist"), m["importance"], m.get("emotion"), m.get("valence", 0.0),
+             bool(m.get("explicit")), m.get("strength", 1.0), bool(m.get("permanent")), m.get("embedding"), m.get("embed_model"),
+             list(m.get("links") or [])),
+        )
+        return row["id"]
+
+    _MEM_SETTABLE = {"text", "gist", "importance", "emotion", "valence", "explicit", "strength", "permanent", "recalled_count",
+                     "status", "resolved", "embedding", "embed_model", "links", "last_recalled_at"}
+
+    async def update_memory(self, memory_id: int, fields: dict) -> None:
+        sets, params = [], []
+        for k, v in fields.items():
+            if k not in self._MEM_SETTABLE:
+                raise ValueError(f"cannot set {k}")
+            if k == "last_recalled_at":
+                sets.append("last_recalled_at = to_timestamp(%s)")
+            elif k == "embedding":
+                sets.append("embedding = %s::real[]")
+            elif k == "links":
+                sets.append("links = %s::bigint[]")
+                v = list(v)
+            else:
+                sets.append(f"{k} = %s")
+            params.append(v)
+        if sets:
+            await self.execute(f"update astrid.memories set {', '.join(sets)} where id = %s", params + [memory_id])
+
+    async def add_link(self, a: int, b: int) -> None:
+        await self.execute(
+            "update astrid.memories set links = array_append(links, %s) where id = %s and not (%s = any(links))", (b, a, b))
+        await self.execute(
+            "update astrid.memories set links = array_append(links, %s) where id = %s and not (%s = any(links))", (a, b, a))
+
+    # ---- profile of Jordan ----
+    async def profile_list(self) -> list[dict]:
+        return await self.fetch(
+            "select key, text, importance, extract(epoch from updated_at)::float8 as updated_at, history "
+            "from astrid.profile_facts where not removed order by importance desc, key asc")
+
+    async def profile_put(self, key: str, text: str, importance: float, now: float) -> str:
+        """Set a fact about him. A changed wording keeps the old one in history. Returns 'added', 'changed' or 'same'."""
+        async def op(c):
+            async with c.transaction():
+                cur = await c.execute("select text, history, removed from astrid.profile_facts where key = %s for update", (key,))
+                row = await cur.fetchone()
+                if row is None:
+                    await c.execute("insert into astrid.profile_facts (key, text, importance, updated_at) values (%s, %s, %s, to_timestamp(%s))",
+                                    (key, text, importance, now))
+                    return "added"
+                same = " ".join(row["text"].lower().split()) == " ".join(text.lower().split()) and not row["removed"]
+                history = list(row["history"] or [])
+                if not same:
+                    history.append({"at": now, "text": row["text"], "removed": bool(row["removed"])})
+                await c.execute(
+                    "update astrid.profile_facts set text = %s, importance = %s, removed = false, history = %s::jsonb, "
+                    "updated_at = to_timestamp(%s) where key = %s", (text, importance, json.dumps(history), now, key))
+                return "same" if same else "changed"
+        return await self._run(op)
+
+    async def profile_remove(self, key: str, now: float) -> bool:
+        row = await self.fetchrow("select text, history from astrid.profile_facts where key = %s and not removed", (key,))
+        if row is None:
+            return False
+        history = list(row["history"] or []) + [{"at": now, "text": row["text"], "removed": False}]
+        await self.execute("update astrid.profile_facts set removed = true, history = %s::jsonb, updated_at = to_timestamp(%s) where key = %s",
+                           (json.dumps(history), now, key))
+        return True
+
     # ---- reset ----
     async def reset_all(self, now: float) -> None:
         """Forget the conversation and put her back to a first-meeting state. Keeps settings."""
-        await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions, astrid.thoughts restart identity")
+        await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions, astrid.thoughts, astrid.memories, astrid.profile_facts restart identity")
         fresh = State(dict(BASELINE), "neutral", None, None, now)
         await self.save_state(fresh, now, "reset", {}, "fresh start")
-        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen')")
+        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen', 'rolling_summary', 'episode_through', 'consolidated_on')")

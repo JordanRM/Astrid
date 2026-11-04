@@ -87,3 +87,8 @@ def make_cfg(db_url, **over):
     )
     base.update(over)
     return Config(**base)
+
+
+def prompt(call) -> str:
+    """Everything the model was told, in order (the fixed front part and the note placed right before she replies)."""
+    return "\n\n".join(m["content"] for m in call["messages"] if m["role"] == "system")
