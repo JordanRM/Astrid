@@ -59,8 +59,16 @@ class Astrid:
             local = datetime.fromtimestamp(now, self.tz)
             heat = heated.is_heated(state, user_lines)
             if heat:
+                # Not walled off: views she holds and her own reading about sex and desire can still come through.
+                # Everyday trivia stays out so it can't pull her out of the scene.
+                known = opinions.relevant(await self.db.list_opinions(60), user_lines[-2:] + assistant_lines[-1:])
+                explicit_thoughts = [t for t in await self.db.list_thoughts(30) if t.get("explicit")]
+                in_mind = curiosity.select(explicit_thoughts, user_lines[-2:] + assistant_lines[-1:], text, state, now, rng=self.rng)
+                if in_mind:
+                    await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
                 system = persona.build_system(
-                    render(state, local), gap_note, examples.render(heated.choose(self.rng)), None, None, rules=heated.RULES,
+                    render(state, local), gap_note, examples.render(heated.choose(self.rng)),
+                    opinions.render(known), curiosity.render(in_mind, now), rules=heated.RULES,
                 )
                 reminder = heated.build_reminder(heated.hints(assistant_lines, user_lines), heated.texts_guidance(self.rng))
             else:

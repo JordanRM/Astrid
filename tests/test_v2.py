@@ -352,9 +352,41 @@ def test_heated_slip_triggers_one_rewrite(db_url):
 def test_explicit_bench_scenarios_exist_and_use_the_heated_judge():
     from bench import judge, scenarios
     hot = [s for s in scenarios.SCENARIOS if s.group == "heated"]
-    assert len(hot) >= 8 and all(s.explicit and s.state["arousal"] >= 6 for s in hot)
+    assert len(hot) >= 9 and all(s.explicit and s.state["arousal"] >= 6 for s in hot)
     assert "DIRECT" in judge.HEATED_SYSTEM and "three hundred kilometers" in judge.HEATED_SYSTEM
     from bench.models import rows, render
     items = rows([{"id": "a/b", "name": "B", "pricing": {"prompt": "0.0000005", "completion": "0.000001"}, "top_provider": {"is_moderated": False, "context_length": 8000}},
                   {"id": "c/d", "name": "D", "pricing": {"prompt": "0", "completion": "0"}, "top_provider": {"is_moderated": True}}], [])
     assert [r["id"] for r in items] == ["a/b"] and "a/b" in render(items)
+
+
+def test_she_is_pushed_to_say_it_first_and_praise_is_kept_in_check():
+    from astrid import heated
+    assert "say it first" in heated.RULES and "linger" in heated.RULES and "You don't have to finish when he does" in heated.RULES
+    assert "refer back to it plainly later" in heated.RULES
+    assert any("too vague" in h for h in heated.hints(["mm. i've been wanting your mouth, and your hands", "i want you so bad tonight"], ["hey you"]))
+    assert not any("too vague" in h for h in heated.hints(["sure, it's about nine"], ["what time is it"]))
+    gush = ["you're so good for me", "just like that, you're incredible", "that's it"]
+    assert any("praising him a lot" in h for h in heated.hints(gush, ["fuck"]))
+
+
+def test_heated_mode_still_surfaces_her_explicit_reading_and_held_views(db_url):
+    from astrid.db import Database
+    from astrid.engine import Astrid
+    from astrid.state import PRESETS, State
+
+    async def go():
+        db = Database(db_url)
+        await db.migrate()
+        await db.add_thought({"kind": "desire", "question": "why edging builds intensity", "thought": "the waiting rewires what the finish feels like",
+                              "share": 0.9, "explicit": True}, time.time() - 600)
+        await db.add_thought({"kind": "drift", "question": "lanark founding", "thought": "weavers", "share": 0.9}, time.time() - 600)
+        await db.upsert_opinion("edging", "worth it when the build is slow", "the payoff is bigger", "conversation", 0.6, None, time.time())
+        await db.save_state(State(dict(PRESETS["heated"]), "x", None, None, time.time()), time.time(), "t", {}, None)
+        cfg = Config(database_url=db_url, openrouter_api_key="k", telegram_token="t", interactor_model="m", thinking_model="t")
+        llm = FakeLLM()
+        await Astrid(cfg, db, llm).reply(1, "edging builds intensity, my cock is aching")
+        await db.close()
+        return llm.calls[0]["messages"][0]["content"]
+    sysmsg = asyncio.run(go())
+    assert "why edging builds intensity" in sysmsg and "worth it when the build is slow" in sysmsg and "lanark founding" not in sysmsg
