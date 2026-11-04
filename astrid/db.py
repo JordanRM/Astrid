@@ -191,15 +191,16 @@ class Database:
     async def add_thought(self, t: dict, now: float) -> None:
         await self.execute(
             "insert into astrid.thoughts (created_at, kind, question, query, sources, thought, notes, learned, for_jordan, "
-            "next_question, share, explicit) values (to_timestamp(%s), %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)",
+            "next_question, share, explicit, to_try) values (to_timestamp(%s), %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)",
             (now, t["kind"], t["question"], t.get("query"), json.dumps(t.get("sources") or []), t["thought"],
-             t.get("notes"), t.get("learned"), t.get("for_jordan"), t.get("next_question"), t.get("share", 0.3), bool(t.get("explicit"))),
+             t.get("notes"), t.get("learned"), t.get("for_jordan"), t.get("next_question"), t.get("share", 0.3), bool(t.get("explicit")),
+             t.get("to_try")),
         )
 
     async def list_thoughts(self, limit: int = 30) -> list[dict]:
         return await self.fetch(
             "select id, extract(epoch from created_at)::float8 as created_at, kind, question, query, sources, thought, "
-            "notes, learned, for_jordan, next_question, share, explicit, surfaced, followed "
+            "notes, learned, for_jordan, next_question, share, explicit, surfaced, followed, to_try "
             "from astrid.thoughts order by created_at desc limit %s", (limit,),
         )
 
@@ -261,4 +262,4 @@ class Database:
         await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions, astrid.thoughts restart identity")
         fresh = State(dict(BASELINE), "neutral", None, None, now)
         await self.save_state(fresh, now, "reset", {}, "fresh start")
-        await self.execute("delete from astrid.settings where key = 'wander_next'")
+        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen')")

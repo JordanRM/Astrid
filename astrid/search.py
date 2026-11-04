@@ -16,7 +16,9 @@ log = logging.getLogger("astrid.search")
 
 # Pages that are video, feeds or login walls: nothing to read.
 _SKIP_HOSTS = ("youtube.com", "youtu.be", "tiktok.com", "instagram.com", "facebook.com", "x.com", "twitter.com",
-               "pinterest.", "linkedin.com", "vimeo.com", "spotify.com", "apple.com/music", "soundcloud.com")
+               "pinterest.", "linkedin.com", "vimeo.com", "spotify.com", "apple.com/music", "soundcloud.com",
+               # video-only sites: nothing to read
+               "pornhub.", "xvideos.", "xnxx.", "xhamster.", "redtube.", "youporn.", "spankbang.", "eporner.")
 _UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 _TAGS = re.compile(r"<[^>]+>")
 

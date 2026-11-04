@@ -56,7 +56,8 @@ right before you start. `reset` puts her back to a first meeting.
 When she's aroused (3.5+) and you've gone sexual in your last few messages, she switches to a separate set of rules,
 examples and checks (`astrid/heated.py`): direct plain words that mirror yours, a new concrete step every reply,
 warm and caring rather than commanding, and staying inside the scene (no "three hundred kilometers away", no real hands).
-Her everyday memories and reading are left out while it's on, and it ends as soon as you change the subject.
+Her everyday trivia is left out while it's on (her views and her own sexual reading stay in), and it ends as soon as you change the subject.
+His side is treated as real (what you're actually doing and feeling), her side as imagined.
 To give it its own model, set `HEATED_MODEL=<openrouter id>` in `.env`; empty means the normal reply model.
 
     .venv/bin/python -m bench.models                       # models with no extra OpenRouter moderation, under $3/M output
@@ -64,6 +65,10 @@ To give it its own model, set `HEATED_MODEL=<openrouter id>` in `.env`; empty me
     .venv/bin/python -m bench --models deepseek/deepseek-v4.1-flash,minimax/minimax-m2-her --scenarios heated --serve   # real ids, comma-separated, no spaces
 
 ## Her own reading
+
+After a heated chat ends (10 minutes quiet), she goes off to read about it the way a person might: a technique, a way of pacing or
+talking, something you said you like. She reads written sources (guides, sex-ed pages, forum threads, written erotica; not video) and keeps
+one idea she'd like to try with you. Heated mode can pull that idea in when it fits, a few replies at most.
 
 With `BRAVE_API_KEY` in `.env`, she reads on her own time: every 2 to 4 hours between 8am and midnight, plus once
 between 1 and 5am. She skips a run while you're mid-conversation. Each run she picks a question from something you said,

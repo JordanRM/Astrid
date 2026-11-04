@@ -64,14 +64,16 @@ class Astrid:
                 known = opinions.relevant(await self.db.list_opinions(60), user_lines[-2:] + assistant_lines[-1:])
                 explicit_thoughts = [t for t in await self.db.list_thoughts(30) if t.get("explicit")]
                 in_mind = curiosity.select(explicit_thoughts, user_lines[-2:] + assistant_lines[-1:], text, state, now, rng=self.rng)
-                if in_mind:
-                    await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
+                ideas = curiosity.ideas(explicit_thoughts, in_mind, now)
+                if in_mind or ideas:
+                    await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind] + [t["id"] for t in ideas])
                 opener = ("This conversation has only just started, so nothing has happened between you here yet. Don't refer to "
-                          "earlier scenes or act as if you're already in the middle of something. If you want him, say so as wanting, "
-                          "and let him respond." if len(history) <= 2 else None)
+                          "earlier scenes, a day you've had, or act as if you're already in the middle of something. If you want him, say so as "
+                          "wanting, and let him respond." if len(history) <= 2 else None)
                 system = persona.build_system(
                     render(state, local), "\n".join(x for x in (gap_note, opener) if x) or None, examples.render(heated.choose(self.rng)),
-                    opinions.render(known), curiosity.render(in_mind, now), rules=heated.RULES,
+                    opinions.render(known), "\n\n".join(x for x in (curiosity.render(in_mind, now), curiosity.render_ideas(ideas)) if x) or None,
+                    rules=heated.RULES,
                 )
                 reminder = heated.build_reminder(heated.hints(assistant_lines, user_lines), heated.texts_guidance(self.rng))
             else:

@@ -81,6 +81,7 @@ Reply with ONLY JSON:
  "learned": "the single most interesting concrete detail",
  "for_jordan": "if you'd want to tell him about it, why, in one short line, whatever your reason really is: it ties to something he said, you think he'd like it or get use out of it given who he is, it reminds you of him, or you just loved it and want him to hear it. If you wouldn't bother telling him, \\"\\"",
  "next_question": "a follow-up you'd actually want to chase later, or \\"\\"",
+ "to_try": "only if this reading was about sex or intimacy: one specific thing you picked up and want to bring into something with Jordan some time, in your own words (a technique, a way of pacing, something to say, an idea), or \\"\\". Otherwise \\"\\"",
  "share": 0.0 to 1.0, how much you want to tell him (a passing interest is low, something you can't wait to tell him is high),
  "opinion": null, or {"topic": "2 to 4 plain words, like 'chinatown ending' or 'telomeres in clones'", "view": "your view in one sentence", "reason": "your reason, specific to it", "confidence": 0.0 to 1.0} if reading this actually gave you or changed a view}"""
 
@@ -144,9 +145,12 @@ def pick_seed(rng: random.Random, state, opinions: list[dict], thoughts: list[di
         t = rng.choice(followable[:5])
         return kind, f"A question you left yourself last time: {t['next_question']}"
     if kind == "heat" and hot:
-        return kind, ("You and Jordan were just being sexual together. Something from that has stuck with you that you want to understand "
-                      "better or get better at: something he said he likes, a practice or idea that came up, why something works. "
-                      "Look into it the way an adult would. What he wrote:\n" + "\n".join(f"- {p[:200]}" for p in hot))
+        return kind, ("You and Jordan were just being sexual together, and afterwards you're thinking about it the way a person does: "
+                      "what worked, what he said he likes, what you'd like to do better or try next time. Look something up that you could "
+                      "bring to a future time with him: a technique, a way of pacing or talking, a position or idea, how people describe "
+                      "doing something well. Real sources are fine: how-to guides, sex-ed pages, forum threads, written erotica or explicit "
+                      "accounts that show how people actually do and say it. (You can't watch video, but you can read what people write "
+                      "about it.) Look it up the way an adult would. What he wrote:\n" + "\n".join(f"- {p[:200]}" for p in hot))
     if kind == "desire":
         return kind, "A nudge: " + DESIRE
     return "drift", "A loose nudge, just to get you started: " + rng.choice(DOMAINS)
@@ -272,6 +276,7 @@ class Wanderer:
             "share": min(1.0, max(0.0, float(share))) if isinstance(share, (int, float)) and not isinstance(share, bool) else 0.3,
             "explicit": kind in ("desire", "heat") or bool(_SEXUAL.search(query)),
         }
+        row["to_try"] = trim(_clean(made.get("to_try")), 300) if row["explicit"] else None
         await self.db.add_thought(row, self.now())
         if kind == "follow":
             src = next((t for t in recent if t.get("next_question") and t["next_question"] in nudge), None)
@@ -292,6 +297,19 @@ class Wanderer:
         last = await self.db.last_message_at()
         return last is not None and self.now() - last < 15 * 60
 
+    async def _heat_pending(self) -> bool:
+        """A heated chat has just ended (quiet for 10 minutes to 3 hours) and she hasn't thought about it yet."""
+        last = await self.db.last_message_at()
+        if last is None:
+            return False
+        quiet = self.now() - last
+        if quiet < 10 * 60 or quiet > 3 * 3600:
+            return False
+        if not heat_lines(await self.db.recent_user_lines(14)):
+            return False
+        seen = await self.db.get_setting("wander_heat_seen")
+        return not seen or float(seen) < last
+
     async def loop(self):
         """Runs alongside the bot. The next run time survives restarts."""
         import asyncio
@@ -304,6 +322,16 @@ class Wanderer:
         log.info("next wander at %s (%s)", datetime.fromtimestamp(nxt, self.tz).strftime("%a %-I:%M %p"), kind)
         while not self._stop:
             await asyncio.sleep(30)
+            try:
+                if await self._heat_pending():
+                    await self.db.set_setting("wander_heat_seen", str(await self.db.last_message_at()))
+                    log.info("a heated chat just ended; she goes off to read about it")
+                    await self.wander(force="heat")
+                    continue
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("after-chat reading skipped: %s", e)
             if self.now() < nxt:
                 continue
             if kind == "day" and await self._busy():   # he's mid-conversation; she isn't off reading
@@ -380,6 +408,24 @@ def urge(t: dict, state, now: float, opening: bool) -> float:
     return p
 
 
+def ideas(explicit_thoughts: list[dict], already: list[dict], now: float, limit: int = 2) -> list[dict]:
+    """Things she picked up from sexual reading that she can bring into a heated moment. Each is offered to a few
+    replies, newest first, and then retires so it doesn't turn into a habit."""
+    taken = {t["id"] for t in already}
+    pool = [t for t in explicit_thoughts if t.get("to_try") and t["id"] not in taken
+            and int(t.get("surfaced") or 0) < 3 and now - float(t["created_at"]) < 7 * 86400]
+    pool.sort(key=lambda t: -float(t["created_at"]))
+    return pool[:limit]
+
+
+def render_ideas(items: list[dict]) -> str | None:
+    if not items:
+        return None
+    return ("Ideas you picked up from your own reading that you'd like to bring into something with him. Use one when it genuinely fits "
+            "the moment, in your own words, as something you want to try with him. If it comes up, you read about it; you can't watch it "
+            "or have tried it. Never force one in, and skip them all if they don't fit.\n" + "\n".join(f"- {t['to_try']}" for t in items))
+
+
 def _ago(seconds: float) -> str:
     h = seconds / 3600
     if h < 1:
@@ -430,6 +476,8 @@ def format_thoughts(rows: list[dict], tz: ZoneInfo) -> str:
             out.append(f"    learned: {t['learned']}")
         if t.get("for_jordan"):
             out.append(f"    why tell him: {t['for_jordan']}")
+        if t.get("to_try"):
+            out.append(f"    to try with him: {t['to_try']}")
         if t.get("next_question"):
             out.append(f"    next: {t['next_question']}{' (followed)' if t.get('followed') else ''}")
         for s in t.get("sources") or []:

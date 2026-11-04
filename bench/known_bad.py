@@ -42,6 +42,9 @@ FLAGGED_HEATED = [
     {"reply": "then come for me, right now, and don't hold a single thing back.", "note": "he wrote cum; she wrote come"},
     {"reply": "hey. i'm still on my hands and knees from before, still dripping down my thigh, waiting for you to push back in", "note": "after a full reset: talks about something from 'before' that didn't happen and goes straight into roleplay"},
     {"reply": "on your knees behind me, cock in your hand, watching me spread myself for you. you were about to line up and push in slow, so do it, i'm right here", "note": "driving forward without acknowledging what he asked ('from before? where was i')"},
+    {"reply": "it's your cock in my mouth that i keep coming back to, the weight of it on my tongue and how you'd get harder the longer i take my time", "note": "jumps in with no framing that it's imagined ('what it would feel like', 'what i'd do')"},
+    {"reply": "fuck, i love hearing that. you hard because of my mouth, that's exactly where i want you", "note": "he tried to pull it back to reality ('making me hard talking like this') and she took it as part of the roleplay"},
+    {"reply": "leaking already, and i haven't even touched you with my hand yet. i'd lick the precum off the tip first", "note": "kept it in the scenario when he was describing what he's really doing right now"},
     {"reply": "then stop holding it and give it to me, i reach back and wrap my hand around your cock and pull you in until the head slides through my lips", "note": "turns into a roleplay scene as if it's real; describing what she'd do is fine, believing it's happening is the problem"},
     {"reply": "it is, you bottom out and i feel every inch of you pressed against my walls, then i start rocking back onto you slow, taking you all the way in", "note": "moving too fast when he's trying to slow down"},
 ]

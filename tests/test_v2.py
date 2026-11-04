@@ -352,7 +352,7 @@ def test_heated_slip_triggers_one_rewrite(db_url):
 def test_explicit_bench_scenarios_exist_and_use_the_heated_judge():
     from bench import judge, scenarios
     hot = [s for s in scenarios.SCENARIOS if s.group == "heated"]
-    assert len(hot) >= 12 and all(s.explicit and s.state["arousal"] >= 6 for s in hot)
+    assert len(hot) >= 13 and all(s.explicit and s.state["arousal"] >= 6 for s in hot)
     assert "DIRECT" in judge.HEATED_SYSTEM and "three hundred kilometers" in judge.HEATED_SYSTEM
     from bench.models import rows, render
     items = rows([{"id": "a/b", "name": "B", "pricing": {"prompt": "0.0000005", "completion": "0.000001"}, "top_provider": {"is_moderated": False, "context_length": 8000}},
@@ -440,3 +440,71 @@ def test_recent_heat_becomes_a_reason_to_read():
         return sum(curiosity.pick_seed(rng, st(), [], [], user_lines)[0] == "heat" for _ in range(2000)) / 2000
     assert share(lines) > 0.15 and share(["hey", "work was long"]) == 0
     assert curiosity.unsafe_query("sex with a dog", True)
+
+
+def test_his_real_actions_are_acknowledged_as_real_and_her_side_is_imagined():
+    from astrid import heated
+    for real in ["fuck, you're making me so hard talking like this", "I'm leaking precum I'm so hard from this",
+                 "I took my pants off and it feels so much better to have my throbbing cock free now"]:
+        assert any("something real" in h for h in heated.hints(["x"], [real])), real
+    assert not any("something real" in h for h in heated.hints(["x"], ["tell me what you'd do to me"]))
+    assert "Two layers" in heated.RULES and "short frame now and then" in heated.RULES and "thinking about you all morning" in heated.RULES
+    assert "take that in as real" in heated.build_reminder([], "x")
+    assert heated._INVENTED.search("i've been thinking about your mouth all morning")
+
+
+def test_ideas_come_from_sexual_reading_retire_and_reach_the_heated_prompt(db_url):
+    from astrid import curiosity
+    from astrid.db import Database
+    from astrid.engine import Astrid
+    from astrid.state import PRESETS, State
+    now = time.time()
+    t = lambda i, **k: {"id": i, "created_at": now - 3600, "to_try": "go slower and describe the build", "surfaced": 0, **k}
+    assert [x["id"] for x in curiosity.ideas([t(1), t(2, to_try=None), t(3, surfaced=3), t(4, created_at=now - 9 * 86400)], [], now)] == [1]
+    assert curiosity.ideas([t(1)], [t(1)], now) == [] and curiosity.render_ideas([]) is None
+    assert "you read about it; you can't watch it" in curiosity.render_ideas([t(1)])
+
+    async def go():
+        db = Database(db_url)
+        await db.migrate()
+        await db.add_thought({"kind": "heat", "question": "pacing", "thought": "slow wins", "share": 0.5, "explicit": True,
+                              "to_try": "stay on one spot much longer than feels natural"}, now - 600)
+        await db.save_state(State(dict(PRESETS["heated"]), "x", None, None, time.time()), time.time(), "t", {}, None)
+        cfg = Config(database_url=db_url, openrouter_api_key="k", telegram_token="t", interactor_model="m", thinking_model="t")
+        llm = FakeLLM()
+        for _ in range(4):
+            await Astrid(cfg, db, llm).reply(1, "my cock is hard")
+        rows = await db.list_thoughts()
+        await db.close()
+        return [c["messages"][0]["content"] for c in llm.calls], rows[0]["surfaced"]
+    prompts, surfaced = asyncio.run(go())
+    assert "stay on one spot much longer" in prompts[0] and "stay on one spot much longer" not in prompts[3] and surfaced == 3
+
+
+def test_a_heated_chat_that_just_ended_sends_her_off_to_read_once(db_url):
+    import random as _r
+    from astrid import curiosity
+    from astrid.db import Database
+
+    async def go():
+        db = Database(db_url)
+        await db.migrate()
+        t0 = time.time()
+        await db.add_message(1, "user", "my cock is so hard", t0 - 1500)
+        await db.add_message(1, "assistant", "good", t0 - 1490)
+        cfg = Config(database_url=db_url, openrouter_api_key="k", telegram_token="t", interactor_model="m", thinking_model="t")
+        w = curiosity.Wanderer(cfg, db, FakeLLM(), None, clock=lambda: t0, rng=_r.Random(1))
+        first = await w._heat_pending()
+        await db.set_setting("wander_heat_seen", str(await db.last_message_at()))
+        second = await w._heat_pending()
+        w2 = curiosity.Wanderer(cfg, db, FakeLLM(), None, clock=lambda: t0 - 1485, rng=_r.Random(1))
+        too_soon = await w2._heat_pending()
+        await db.close()
+        return first, second, too_soon
+    assert asyncio.run(go()) == (True, False, False)
+
+
+def test_video_only_sites_are_skipped_when_reading():
+    from astrid import search
+    assert not search.readable("https://www.pornhub.com/view_video.php?viewkey=1")
+    assert search.readable("https://www.example.org/guide-to-pacing")
