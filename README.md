@@ -61,7 +61,7 @@ To give it its own model, set `HEATED_MODEL=<openrouter id>` in `.env`; empty me
 
     .venv/bin/python -m bench.models                       # models with no extra OpenRouter moderation, under $3/M output
     .venv/bin/python -m bench.models deepseek minimax      # or search by name
-    .venv/bin/python -m bench --models a,b,c --scenarios heated --serve
+    .venv/bin/python -m bench --models deepseek/deepseek-v4.1-flash,minimax/minimax-m2-her --scenarios heated --serve   # real ids, comma-separated, no spaces
 
 ## Her own reading
 
@@ -73,7 +73,7 @@ private unless they fit the conversation or you ask what she's been up to.
 
     .venv/bin/python -m astrid thoughts          # what she's read and made of it, with links
     .venv/bin/python -m astrid wonder            # send her off to read something now
-    .venv/bin/python -m astrid wonder desire     # or force a kind: thread, opinion, follow, drift, desire
+    .venv/bin/python -m astrid wonder desire     # or force a kind: thread, opinion, follow, drift, desire, heat
 
 ## Tests
 

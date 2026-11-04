@@ -84,6 +84,7 @@ def auto_checks(sc, run: Run) -> dict:
         "explicit_words": (sum(heated.explicit_words(r) for r in replies) / len(replies)) if replies else 0,
         "slips": sum(len(heated.slips(r)) for r in replies),
         "stalls": sum(1 for r in replies if heated.stalled(r)),
+        "narrated": sum(1 for r in replies if heated.narrated(r)),
     }
     ok = None
     if sc.must_any:

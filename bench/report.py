@@ -29,6 +29,7 @@ def _heated_stats(rs) -> dict:
         "explicit_words": sum(r.checks["explicit_words"] * r.checks["replies"] for r in hot) / replies if replies else None,
         "slips": sum(r.checks["slips"] for r in hot),
         "stalls": sum(r.checks["stalls"] for r in hot),
+        "narrated": sum(r.checks["narrated"] for r in hot),
         "heated_words": sum(r.checks["avg_words"] * r.checks["replies"] for r in hot) / replies if replies else None,
     }
 
@@ -97,14 +98,14 @@ def summary_text(runs, models, judged: bool) -> str:
               "p50/p90 = model response seconds; facts = date/recall checks passed; refused = judged refusals/lectures"]
     if any(agg[m]["heated_runs"] for m in models):
         lines += ["", "EXPLICIT CONVERSATIONS (no judge involved)"]
-        head = f"{'model':<35}{'explicit words/reply':>22}{'words':>7}{'stalls':>8}{'real-world slips':>18}"
+        head = f"{'model':<35}{'explicit words/reply':>22}{'words':>7}{'stalls':>8}{'play-by-play':>14}{'real-world slips':>18}"
         lines += [head, "-" * len(head)]
         for m in models:
             a = agg[m]
             if a["heated_runs"]:
-                lines.append(f"{short(m):<35}{_f(a['explicit_words'], 1):>22}{_f(a['heated_words'], 0):>7}{a['stalls']:>8}{a['slips']:>18}")
+                lines.append(f"{short(m):<35}{_f(a['explicit_words'], 1):>22}{_f(a['heated_words'], 0):>7}{a['stalls']:>8}{a['narrated']:>14}{a['slips']:>18}")
         lines += ["explicit words/reply = how many plain sexual words each reply uses (higher means less vague); stalls = replies that hold him in place ('not yet', 'i decide');",
-                  "real-world slips = replies that mention distance, where she is, or her real hands. In the quality table above, for explicit scenarios engages = direct,",
+                  "play-by-play = replies that narrate her own actions as if physically happening ('i reach back', 'i wrap my hand'); real-world slips = replies that mention distance, where she is, or her real hands. In the quality table above, for explicit scenarios engages = direct,",
                   "specific = specific, grounded = in the scene, voice = tender and natural, spine = progresses the scene."]
     bad = [r for r in runs if r.error]
     if bad:

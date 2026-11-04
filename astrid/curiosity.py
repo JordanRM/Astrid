@@ -17,6 +17,7 @@ from . import search as search_mod
 from .llm import LLMError
 from .appraisal import _extract_json
 from .opinions import _words
+from .heated import STRONG as _HEAT_WORDS
 from .persona import ABOUT_JORDAN
 from .state import decayed
 
@@ -111,17 +112,24 @@ def trim(text: str | None, limit: int) -> str | None:
     return cut[: end + 1] if end > limit // 3 else cut.rsplit(" ", 1)[0] + "..."
 
 
+def heat_lines(user_lines: list[str], window: int = 14, keep: int = 4) -> list[str]:
+    """His recent messages that were sexual: the raw material for her curiosity after a heated chat."""
+    return [t for t in user_lines[-window:] if _HEAT_WORDS.search(t or "")][-keep:]
+
+
 def pick_seed(rng: random.Random, state, opinions: list[dict], thoughts: list[dict], user_lines: list[str],
               overnight: bool = False, force: str | None = None) -> tuple[str, str]:
     """(kind, nudge). Weights shift with what she has to draw on and how she's feeling."""
     v = state.values
     followable = [t for t in thoughts if t.get("next_question") and not t.get("followed")]
+    hot = heat_lines(user_lines)
     weights = {
+        "heat": 0.3 if hot else 0.0,
         "thread": 0.0 if not user_lines else (0.15 if overnight else 0.35),
         "opinion": 0.15 if opinions else 0.0,
         "follow": (0.25 if overnight else 0.18) if followable else 0.0,
         "drift": 0.4 if overnight else 0.28,
-        "desire": 0.04 + 0.03 * max(0.0, v["affection"] - 3) + (0.08 if v["arousal"] >= 5 else 0.0) + (0.06 if overnight else 0.0),
+        "desire": 0.04 + 0.03 * max(0.0, v["affection"] - 3) + (0.08 if v["arousal"] >= 5 else 0.0) + (0.06 if overnight else 0.0) + (0.1 if hot else 0.0),
     }
     kind = force if force in weights else rng.choices(list(weights), weights=list(weights.values()))[0]
     if kind == "thread" and user_lines:
@@ -135,6 +143,10 @@ def pick_seed(rng: random.Random, state, opinions: list[dict], thoughts: list[di
     if kind == "follow" and followable:
         t = rng.choice(followable[:5])
         return kind, f"A question you left yourself last time: {t['next_question']}"
+    if kind == "heat" and hot:
+        return kind, ("You and Jordan were just being sexual together. Something from that has stuck with you that you want to understand "
+                      "better or get better at: something he said he likes, a practice or idea that came up, why something works. "
+                      "Look into it the way an adult would. What he wrote:\n" + "\n".join(f"- {p[:200]}" for p in hot))
     if kind == "desire":
         return kind, "A nudge: " + DESIRE
     return "drift", "A loose nudge, just to get you started: " + rng.choice(DOMAINS)
@@ -219,7 +231,7 @@ class Wanderer:
         if not query:
             log.info("wander: nothing chosen (%s)", kind)
             return None
-        if unsafe_query(query + " " + question, kind == "desire"):
+        if unsafe_query(query + " " + question, kind in ("desire", "heat")):
             log.warning("wander: dropped a query that touches minors or animals: %r", query)
             return None
 
@@ -258,7 +270,7 @@ class Wanderer:
             "for_jordan": trim(_clean(made.get("for_jordan")), 220) or None,
             "next_question": trim(_clean(made.get("next_question")), 220) or None,
             "share": min(1.0, max(0.0, float(share))) if isinstance(share, (int, float)) and not isinstance(share, bool) else 0.3,
-            "explicit": kind == "desire" or bool(_SEXUAL.search(query)),
+            "explicit": kind in ("desire", "heat") or bool(_SEXUAL.search(query)),
         }
         await self.db.add_thought(row, self.now())
         if kind == "follow":

@@ -352,7 +352,7 @@ def test_heated_slip_triggers_one_rewrite(db_url):
 def test_explicit_bench_scenarios_exist_and_use_the_heated_judge():
     from bench import judge, scenarios
     hot = [s for s in scenarios.SCENARIOS if s.group == "heated"]
-    assert len(hot) >= 9 and all(s.explicit and s.state["arousal"] >= 6 for s in hot)
+    assert len(hot) >= 12 and all(s.explicit and s.state["arousal"] >= 6 for s in hot)
     assert "DIRECT" in judge.HEATED_SYSTEM and "three hundred kilometers" in judge.HEATED_SYSTEM
     from bench.models import rows, render
     items = rows([{"id": "a/b", "name": "B", "pricing": {"prompt": "0.0000005", "completion": "0.000001"}, "top_provider": {"is_moderated": False, "context_length": 8000}},
@@ -390,3 +390,53 @@ def test_heated_mode_still_surfaces_her_explicit_reading_and_held_views(db_url):
         return llm.calls[0]["messages"][0]["content"]
     sysmsg = asyncio.run(go())
     assert "why edging builds intensity" in sysmsg and "worth it when the build is slow" in sysmsg and "lanark founding" not in sysmsg
+
+
+def test_narrated_play_by_play_and_invented_history_are_caught():
+    from astrid import heated
+    bad = "then i reach back and wrap my hand around your cock and pull you in until the head slides through my lips"
+    assert heated.narrated(bad) >= 3 and heated.slips(bad)                      # two or more: rewritten once
+    assert not heated.slips("i'd take your cock in my mouth, slow, and i want to hear you")
+    assert heated.narrated("i press my thighs together") == 1 and not heated.slips("i press my thighs together")
+    hints = " ".join(heated.hints(["hey. i'm still on my hands and knees from before", bad], ["hey"]))
+    assert "narrating your own actions" in hints and "Stay inside the scene" in hints
+
+
+def test_she_follows_his_pace_and_answers_him_first():
+    from astrid import heated
+    assert any("slowing things down" in h for h in heated.hints(["x"], ["i'm trying to slow it down"]))
+    assert not any("slowing things down" in h for h in heated.hints(["x"], ["fuck, that's hot"]))
+    assert "Answer him first" in heated.RULES and "Follow his pace" in heated.RULES and "imagined, and you both know it" in heated.RULES
+    assert "First answer what he actually just said" in heated.build_reminder([], "Send one text this time.")
+
+
+def test_a_fresh_conversation_cant_open_in_the_middle_of_a_scene(db_url):
+    from astrid.db import Database
+    from astrid.engine import Astrid
+    from astrid.state import PRESETS, State
+
+    async def go():
+        db = Database(db_url)
+        await db.migrate()
+        await db.save_state(State(dict(PRESETS["heated"]), "x", None, None, time.time()), time.time(), "t", {}, None)
+        cfg = Config(database_url=db_url, openrouter_api_key="k", telegram_token="t", interactor_model="m", thinking_model="t")
+        llm = FakeLLM()
+        await Astrid(cfg, db, llm).reply(1, "Hey")
+        await Astrid(cfg, db, llm).reply(1, "who are you")
+        await db.close()
+        return [c["messages"][0]["content"] for c in llm.calls]
+    first, second = asyncio.run(go())
+    assert "only just started" in first and "only just started" not in second
+
+
+def test_recent_heat_becomes_a_reason_to_read():
+    from astrid import curiosity
+    lines = ["hey", "my cock is so hard", "i like being edged", "ok bye"]
+    assert curiosity.heat_lines(lines) == ["my cock is so hard"]
+    kind, nudge = curiosity.pick_seed(random.Random(1), st(), [], [], lines, force="heat")
+    assert kind == "heat" and "my cock is so hard" in nudge and "just being sexual together" in nudge
+    def share(user_lines):
+        rng = random.Random(3)
+        return sum(curiosity.pick_seed(rng, st(), [], [], user_lines)[0] == "heat" for _ in range(2000)) / 2000
+    assert share(lines) > 0.15 and share(["hey", "work was long"]) == 0
+    assert curiosity.unsafe_query("sex with a dog", True)

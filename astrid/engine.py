@@ -66,8 +66,11 @@ class Astrid:
                 in_mind = curiosity.select(explicit_thoughts, user_lines[-2:] + assistant_lines[-1:], text, state, now, rng=self.rng)
                 if in_mind:
                     await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
+                opener = ("This conversation has only just started, so nothing has happened between you here yet. Don't refer to "
+                          "earlier scenes or act as if you're already in the middle of something. If you want him, say so as wanting, "
+                          "and let him respond." if len(history) <= 2 else None)
                 system = persona.build_system(
-                    render(state, local), gap_note, examples.render(heated.choose(self.rng)),
+                    render(state, local), "\n".join(x for x in (gap_note, opener) if x) or None, examples.render(heated.choose(self.rng)),
                     opinions.render(known), curiosity.render(in_mind, now), rules=heated.RULES,
                 )
                 reminder = heated.build_reminder(heated.hints(assistant_lines, user_lines), heated.texts_guidance(self.rng))

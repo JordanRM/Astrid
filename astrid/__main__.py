@@ -25,7 +25,7 @@ USAGE = """usage: python -m astrid [command]
   opinions list the views she has formed, with reasons and changes of mind
   state    show her mood and numbers; set them for testing:  state preset heated  |  state set arousal=8 trust=7
   thoughts list what she's read and thought about on her own time
-  wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire)
+  wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire, heat)
   flags    list replies you flagged with /meh in Telegram
   reset    forget the conversation and put her back to a first meeting (add --yes)"""
 

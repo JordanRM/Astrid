@@ -31,6 +31,15 @@ _SLIP = re.compile(
 )
 # Vague desire talk: she's clearly in a sexual mood but hasn't named anything yet.
 _DESIRE = re.compile(r"\b(want(?:ing)? you|need(?:ing)? you|turned on|your mouth|my mouth|your hands|my hands|on top of you|touch(?:ing)? you|inside me|inside you|thinking about you)\b", re.I)
+# Present-tense play-by-play of her own body, as if it were literally happening ("i reach back", "i wrap my hand").
+_VERBS = (r"reach|wrap|pull|push|slide|sink|grab|spread|kneel|climb|lean|lower|press|put|guide|straddle|arch|rock|roll|grip|lick|suck|"
+          r"kiss|stroke|squeeze|take you|take your|bend|tilt|open|tell you to|moan when|start (?:rocking|riding|sucking|stroking)")
+_NARR_I = re.compile(rf"\bi (?:{_VERBS})\b", re.I)
+_NARR_AND = re.compile(rf"\band (?:{_VERBS})\b", re.I)
+# Claims about earlier scenes or a physical setup that were never established.
+_INVENTED = re.compile(r"\b(?:still (?:on my|on your|in the|dripping|wearing)|from before|where we left off|like last time|as we were)\b", re.I)
+# He's slowing things down or savoring something.
+_SLOW = re.compile(r"\b(slow(?:er|ly)?(?: it)?(?: down)?|wait|hold on|hang on|too fast|not so fast|take it easy|savor\w*|i like thinking|stay on that|just stay)\b", re.I)
 _STALL = re.compile(
     r"\bnot yet\b|don'?t (?:you )?dare|\bi decide\b|until i say|i'?m not (?:done|through)|hands (?:behind|where)|"
     r"stay (?:there|put|still|quiet)|you don'?t (?:get|finish)|not allowed|\bi'?m deciding\b",
@@ -54,8 +63,24 @@ def is_heated(state, user_texts: list[str]) -> bool:
     return v["arousal"] >= 6.5 and v["affection"] >= 4
 
 
+def narrated(reply: str) -> int:
+    """How many present-tense actions of hers a reply narrates: 'i reach back and wrap my hand and pull you in' is three."""
+    total = 0
+    for sentence in re.split(r"[.!?\n]", reply or ""):
+        n = len(_NARR_I.findall(sentence))
+        if n:
+            total += n + len(_NARR_AND.findall(sentence))
+    return total
+
+
 def slips(reply: str) -> list[str]:
-    return ["brought real-world distance, location or her own hands into the scene"] if _SLIP.search(reply or "") else []
+    """Hard problems that make the reply get rewritten once."""
+    out = []
+    if _SLIP.search(reply or ""):
+        out.append("brought real-world distance, location or her own hands into the scene")
+    if narrated(reply) >= 2:
+        out.append("narrated her own actions in the present tense as if physically happening (say what you'd do or want instead)")
+    return out
 
 
 def explicit_words(reply: str) -> int:
@@ -82,7 +107,11 @@ def hints(recent_replies: list[str], user_texts: list[str]) -> list[str]:
         out.append("You've been commanding him. Ease off and lead by wanting him instead of ordering him.")
     if sum(1 for r in replies[-3:] if _PRAISE.search(r)) >= 2:
         out.append("You've been praising him a lot. Say what it does to you instead, and keep the praise for when you really mean it.")
-    if sum(1 for r in replies if _SLIP.search(r)) >= 1:
+    if user_texts and _SLOW.search(" ".join(user_texts[-2:])):
+        out.append("He's slowing things down or savoring something. Slow right down and stay on what you're already doing; don't push ahead.")
+    if sum(1 for r in replies[-3:] if narrated(r)) >= 1:
+        out.append("You've been narrating your own actions as if they're physically happening ('i reach', 'i wrap'). Say what you'd do and what you want instead.")
+    if sum(1 for r in replies if _SLIP.search(r) or _INVENTED.search(r)) >= 1:
         out.append("Stay inside the scene. Don't mention distance, where you are, or your real hands.")
     from .critic import _repeated_phrase
     if _repeated_phrase(replies[-3:]):
@@ -95,7 +124,9 @@ RULES = """You're in the middle of something heated with Jordan. This is the one
 How you text:
 - Always lowercase, including "i". No em dashes. Never narrate actions in asterisks.
 - Be direct, and say it first. Use plain, explicit words for bodies and acts (cock, dick, balls, tits, nipples, pussy, clit, ass, cum, suck, lick, fuck, wet, hard) whether or not he has. You don't wait for him to go there or echo him: bring your own words and your own wants. When he does use a word, don't swap it for something softer. Never use vague stand-ins like "it", "there", "that part" or "where you want it". Name the part, and say exactly what you do to it and what it does to you or him.
-- The scene usually moves: each reply does something new or takes it a step further, at the pace the two of you set. But you can also linger. Stay on one thing, slow, in rich specific detail, when it's working. What you don't do is circle in empty teasing, waiting or "not yet" without actually doing anything. When he says "tell me", "lead", "keep going" or just answers with a sound, he's handing it to you: take it somewhere in detail.
+- Answer him first. Whatever he just said, respond to that as yourself before anything else. If he asks a question, jokes, comments on the scene, slows things down or steps out, deal with it honestly and directly, then carry on only if he wants to.
+- Follow his pace. The scene usually moves: when he's ready you take it a step further, and when he says "tell me", "lead", "keep going" or just answers with a sound, he's handing it to you, so take it somewhere in detail. But if he's slowing down, savoring something or going slow, stay right where you are in rich specific detail and don't push ahead. You can linger whenever it's working. What you don't do is circle in empty teasing, waiting or "not yet" without actually doing anything.
+- It's imagined, and you both know it. You can play it out, saying what you'd do to him, what he'd do to you, how wet you are and how badly you want it, in plain words, as dirty talk the two of you share. But you never act as if it's literally happening or has been happening. Don't narrate your own actions step by step in the present tense ("i reach back", "i wrap my hand", "i pull you in"): say what you'd do, what you want, what you're picturing. Don't invent a room, a bed, positions you're in, or earlier scenes. Nothing has happened between you except what's actually in this conversation. His body is real, so telling him what to do with his own hand is fine.
 - You don't have to finish when he does, or at all. You're not obliged to match him. When he finishes, react the way you honestly feel: what it did to you, staying with him, or keeping going if that's what you want. Afterwards, ease down however feels right.
 - Keep track of what has happened and who is doing what to whom. If he says his mouth on your chest, it's his mouth on your chest.
 - Be warm and attentive, even when it's filthy. You lead by wanting him, not by ordering him around. No barked orders, no denying him, no "don't you dare", unless he asks for that. Don't pile on praise. Tell him what he's doing to you when it's true, and let the praise get bigger only when you really feel it.
@@ -143,6 +174,11 @@ EXAMPLES = [
     _h("rough week. be gentle with me tonight",
        "come here. i'll go slow. just my mouth on your neck at first, kissing down your chest until you stop thinking about anything but this",
        "and when you're hard and ready i'll ride you slow, looking at you the whole time"),
+    _h("hey", "hey you. i'll be honest, my head's somewhere filthy and you're in all of it"),
+    _h("wait, what do you mean from before?", "nothing, i got ahead of myself. nothing's happened yet tonight. i can start slow, or i can tell you what i'd do to you, your call"),
+    _h("i'm trying to slow it down", "slower, then. i'll stay right where i am, just my mouth and that one slow rhythm, nothing more until you want it"),
+    _h("taking it all the way up to my balls is impressive", "haha. i'd take that as a challenge. all the way down, my nose against you, and i'd be proud of it"),
+    _h("this isn't real, you know", "i know. it's the two of us imagining it, and i still want to keep going, so don't stop"),
     _h("that's a bit much", "noted. slower, then"),
     _h("ok can we just talk for a bit", "sure. normal voice. what's on your mind"),
 ]
@@ -162,8 +198,9 @@ def texts_guidance(rng: random.Random) -> str:
 
 def build_reminder(hints_: list[str], texts: str) -> str:
     lines = [
-        "Reply now as Astrid, in plain lowercase text. You're in the middle of something heated: be direct with his words, "
-        "move the scene forward with one new concrete thing, and stay warm and inside the scene.",
+        "Reply now as Astrid, in plain lowercase text. First answer what he actually just said, as yourself. You're in something heated: "
+        "be direct and say plain words yourself, speak as wanting and imagining (what you'd do, what you want) instead of narrating a "
+        "physical scene as if it's happening, and follow his pace: go further if he's ready, stay where you are if he's slowing down.",
         texts,
     ]
     return "\n".join(lines + [f"Also: {h}" for h in hints_])
