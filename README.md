@@ -42,6 +42,15 @@ Watch her logs: `journalctl -u astrid -f`
 
 The first person to message the bot becomes its owner; everyone else is ignored. Set `OWNER_TELEGRAM_ID` in `.env` to lock it to a specific account.
 
+## Setting her state for testing
+
+    .venv/bin/python -m astrid state                       # show her mood and numbers
+    .venv/bin/python -m astrid state preset heated         # jump to: heated, close, in_love, fresh
+    .venv/bin/python -m astrid state set arousal=9 trust=8 mood="wanting you"
+
+Arousal and irritation cool within hours (half-life 4h and 8h), and every exchange moves her a little, so set it
+right before you start. `reset` puts her back to a first meeting.
+
 ## Her own reading
 
 With `BRAVE_API_KEY` in `.env`, she reads on her own time: every 2 to 4 hours between 8am and midnight, plus once

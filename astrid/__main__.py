@@ -15,6 +15,7 @@ from .engine import Astrid
 from .llm import LLMError, OpenRouter
 from .net import force_ipv4
 from .opinions import format_opinions
+from .state import FIELDS, PRESETS, decayed, parse_assignments
 from .telegram_bot import Bot, Telegram, TelegramError
 
 USAGE = """usage: python -m astrid [command]
@@ -22,6 +23,7 @@ USAGE = """usage: python -m astrid [command]
   migrate  create or update the database tables
   check    verify settings, database, Telegram and the reply model
   opinions list the views she has formed, with reasons and changes of mind
+  state    show her mood and numbers; set them for testing:  state preset heated  |  state set arousal=8 trust=7
   thoughts list what she's read and thought about on her own time
   wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire)
   flags    list replies you flagged with /meh in Telegram
@@ -133,6 +135,43 @@ def main() -> int:
             rows = await db.list_opinions(200)
             await db.close()
             print(format_opinions(rows))
+        asyncio.run(go())
+        return 0
+    if cmd == "state":
+        sub = sys.argv[2] if len(sys.argv) > 2 else "show"
+        async def go():
+            db = Database(cfg.database_url)
+            await db.migrate()
+            now = time.time()
+            st = decayed(await db.get_state(), now)
+            if sub in ("preset", "set"):
+                try:
+                    if sub == "preset":
+                        name = sys.argv[3] if len(sys.argv) > 3 else ""
+                        if name not in PRESETS:
+                            raise ValueError(f"presets: {', '.join(PRESETS)}")
+                        values, extras = dict(PRESETS[name]), {"mood": {"heated": "wanting you", "close": "warm", "in_love": "soft", "fresh": "neutral"}[name],
+                                                              "tension": None, "directive": None}
+                        st.values.update(values)
+                    else:
+                        values, extras = parse_assignments(sys.argv[3:])
+                        st.values.update(values)
+                except ValueError as e:
+                    print(e)
+                    await db.close()
+                    return
+                if "mood" in extras and extras["mood"]:
+                    st.mood = extras["mood"]
+                if "tension" in extras:
+                    st.unresolved_tension = extras["tension"]
+                if "directive" in extras:
+                    st.directive = extras["directive"]
+                await db.save_state(st, now, "manual", {}, "set by hand for testing")
+                print("saved. note: arousal and irritation cool within hours, and each exchange moves her a little.")
+            await db.close()
+            print("mood: " + st.mood + (f" | unresolved: {st.unresolved_tension}" if st.unresolved_tension else "")
+                  + (f" | directive: {st.directive}" if st.directive else ""))
+            print("  ".join(f"{k} {st.values[k]:.1f}" for k in FIELDS))
         asyncio.run(go())
         return 0
     if cmd == "thoughts":

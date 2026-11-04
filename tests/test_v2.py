@@ -250,3 +250,16 @@ def test_stored_opinions_have_no_dashes_and_the_prompt_asks_for_clean_specific_v
 
 def test_time_line_has_no_phone_metaphor():
     assert "phone" not in render(st(), at(15))
+
+
+def test_state_assignments_parse_and_clamp():
+    from astrid.state import PRESETS, parse_assignments
+    import pytest as _pt
+    values, extras = parse_assignments(["arousal=12", "Trust=7.5", "mood=wanting you", "tension=none"])
+    assert values == {"arousal": 10.0, "trust": 7.5} and extras == {"mood": "wanting you", "tension": None}
+    for bad in (["arousal"], ["arousal=lots"], ["nonsense=3"]):
+        with _pt.raises(ValueError):
+            parse_assignments(bad)
+    from astrid.examples import active_conditions
+    from astrid.state import State
+    assert "heated" in active_conditions(State(dict(PRESETS["heated"]), "x", None, None, 1.0), at(23))

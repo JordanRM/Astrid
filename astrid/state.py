@@ -187,3 +187,32 @@ def length_guidance(state: State, local_now: datetime) -> str:
     if v["rapport"] >= 6 and energy >= 6:
         return "Length: loose and chatty is fine, 1 to 4 short sentences."
     return "Length: usually 1 or 2 short sentences."
+
+
+# Starting points for testing: jump straight to a state instead of earning it over weeks.
+PRESETS = {
+    "heated": {"trust": 8, "rapport": 8, "affection": 7, "irritation": 0.5, "energy": 7, "vulnerability": 6, "arousal": 8, "security": 8},
+    "close": {"trust": 7, "rapport": 7, "affection": 6, "irritation": 0.5, "energy": 6, "vulnerability": 5, "arousal": 3, "security": 7},
+    "in_love": {"trust": 9, "rapport": 9, "affection": 9, "irritation": 0.5, "energy": 7, "vulnerability": 7, "arousal": 5, "security": 9},
+    "fresh": dict(BASELINE),
+}
+
+
+def parse_assignments(items: list[str]) -> tuple[dict, dict]:
+    """['arousal=8', 'mood=wanting you', 'tension=none'] -> ({values}, {mood/tension}). Raises ValueError on a bad item."""
+    values, extras = {}, {}
+    for item in items:
+        key, sep, raw = item.partition("=")
+        key, raw = key.strip().lower(), raw.strip()
+        if not sep:
+            raise ValueError(f"expected name=value, got {item!r}")
+        if key in FIELDS:
+            try:
+                values[key] = clamp(float(raw))
+            except ValueError:
+                raise ValueError(f"{key} needs a number from 0 to 10, got {raw!r}") from None
+        elif key in ("mood", "tension", "directive"):
+            extras[key] = None if raw.lower() in ("none", "") else raw
+        else:
+            raise ValueError(f"unknown setting {key!r}; use one of: {', '.join(FIELDS)}, mood, tension, directive")
+    return values, extras
