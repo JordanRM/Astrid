@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from . import search as search_mod
 from .llm import LLMError
-from .appraisal import _clean, _extract_json
+from .appraisal import _extract_json
 from .opinions import _words
 from .persona import ABOUT_JORDAN
 from .state import decayed
@@ -81,7 +81,15 @@ Reply with ONLY JSON:
  "for_jordan": "if you'd want to tell him about it, why, in one short line, whatever your reason really is: it ties to something he said, you think he'd like it or get use out of it given who he is, it reminds you of him, or you just loved it and want him to hear it. If you wouldn't bother telling him, \\"\\"",
  "next_question": "a follow-up you'd actually want to chase later, or \\"\\"",
  "share": 0.0 to 1.0, how much you want to tell him (a passing interest is low, something you can't wait to tell him is high),
- "opinion": null, or {"topic": "2 to 4 plain words, like 'chinatown ending' or 'ice wine'", "view": "your view in one sentence", "reason": "your reason, specific to it", "confidence": 0.0 to 1.0} if reading this actually gave you or changed a view}"""
+ "opinion": null, or {"topic": "2 to 4 plain words, like 'chinatown ending' or 'telomeres in clones'", "view": "your view in one sentence", "reason": "your reason, specific to it", "confidence": 0.0 to 1.0} if reading this actually gave you or changed a view}"""
+
+
+def _clean(v) -> str | None:
+    """Tidy a field without cutting it short (lengths are handled by trim)."""
+    if v is None:
+        return None
+    s = re.sub(r"\s*[\u2014\u2013]\s*", ", ", " ".join(str(v).split()))
+    return s or None
 
 
 def _clean_lines(v) -> str | None:
@@ -220,7 +228,7 @@ class Wanderer:
         for r in results[:5]:
             got = await self.fetch(r["url"])
             if got:
-                pages.append({"title": got[0] or r["title"], "url": r["url"], "text": got[1]})
+                pages.append({"title": r["title"] or got[0], "url": r["url"], "text": got[1]})
             if len(pages) == 2:
                 break
         if not pages and results:  # nothing would load; the snippets are still something to think about
@@ -377,12 +385,14 @@ def render(thoughts: list[dict], now: float) -> str | None:
         "Things you looked up and read on your own time recently. They're real, and they're yours. Don't recite them or "
         "drop them in as trivia. Mention one if it fits what you two are talking about, if he asks what you've been up "
         "to, or if it's marked as something you want to tell him and there's a natural opening (skip it if he's in the "
-        "middle of something). Say what you made of it, briefly. At most one per reply, and it's fine to mention none."
+        "middle of something). When you mention one, lead with your take or what struck you, not the facts: a fact on "
+        "its own is trivia. Keep it brief, and use the details only if he wants more. At most one per reply, and it's "
+        "fine to mention none."
     ]
     for t in thoughts:
-        line = f"- {_ago(now - float(t['created_at']))}, you wondered: {t['question']}. what you made of it: {t['thought']}"
+        line = f"- {_ago(now - float(t['created_at']))}, you read up on: {t['question']}. your take: {t['thought']}"
         if t.get("notes"):
-            line += " (what you took from it: " + "; ".join(t["notes"].splitlines()) + ")"
+            line += " (details, if he wants more: " + trim("; ".join(t["notes"].splitlines()), 700) + ")"
         elif t.get("learned"):
             line += f" (detail: {t['learned']})"
         if t.get("for_jordan"):

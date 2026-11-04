@@ -192,7 +192,7 @@ def test_notes_come_through_and_are_tidy():
     assert curiosity._clean_lines(["- towne wanted hope \u2014 polanski didn't", "1974"]) == "towne wanted hope, polanski didn't\n1974"
     now = at(2026, 11, 3, 20)
     out = curiosity.render([{"created_at": now, "question": "q", "thought": "t", "notes": "a\nb"}], now)
-    assert "what you took from it: a; b" in out
+    assert "details, if he wants more: a; b" in out and "lead with your take" in out
 
 
 def test_trim_cuts_at_a_sentence():
@@ -211,3 +211,8 @@ def test_ask_retries_with_more_room_when_the_answer_is_empty_or_cut_off():
         asyncio.run(w._ask("s", "u", 1000))      # empty, then cut off: gives up after two tries
     assert [c["max_tokens"] for c in llm.calls] == [1000, 2000]
     assert asyncio.run(w._ask("s", "u", 1000)) == {"question": "q", "query": "x"}
+
+
+def test_long_thoughts_are_not_cut_at_400():
+    long = "britain wanted bodies on the frontier in case the americans came back. " * 8
+    assert curiosity._clean(long) == long.strip()
