@@ -8,6 +8,8 @@ import sys
 import time
 
 from .config import ConfigError, load_config
+from .curiosity import Wanderer, format_thoughts
+from .search import Brave, SearchError
 from .db import Database
 from .engine import Astrid
 from .llm import LLMError, OpenRouter
@@ -20,6 +22,8 @@ USAGE = """usage: python -m astrid [command]
   migrate  create or update the database tables
   check    verify settings, database, Telegram and the reply model
   opinions list the views she has formed, with reasons and changes of mind
+  thoughts list what she's read and thought about on her own time
+  wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire)
   flags    list replies you flagged with /meh in Telegram
   reset    forget the conversation and put her back to a first meeting (add --yes)"""
 
@@ -46,6 +50,15 @@ async def _check(cfg) -> int:
     except LLMError as e:
         ok = False
         print(f"reply model: FAILED ({e})")
+    if cfg.brave_api_key:
+        try:
+            hits = await Brave(cfg.brave_api_key).search("lanark village ontario", 2)
+            print(f"brave search: ok ({len(hits)} results)")
+        except SearchError as e:
+            ok = False
+            print(f"brave search: FAILED ({e})")
+    else:
+        print("brave search: off (no BRAVE_API_KEY), so she won't read on her own")
     await db.close()
     return 0 if ok else 1
 
@@ -56,12 +69,23 @@ async def _run(cfg) -> None:
     llm = OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url)
     engine = Astrid(cfg, db, llm)
     bot = Bot(cfg, db, engine, Telegram(cfg.telegram_token, cfg.telegram_api_base))
+    wanderer = Wanderer(cfg, db, llm, Brave(cfg.brave_api_key)) if cfg.brave_api_key else None
+    if wanderer is None:
+        logging.getLogger("astrid").info("no BRAVE_API_KEY: her own reading is off")
     loop = asyncio.get_running_loop()
+
+    def stop():
+        bot.stop()
+        if wanderer:
+            wanderer.stop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, bot.stop)
+        loop.add_signal_handler(sig, stop)
+    wandering = asyncio.create_task(wanderer.loop()) if wanderer else None
     try:
         await bot.run()
     finally:
+        if wandering:
+            wandering.cancel()
         await db.close()
 
 
@@ -109,6 +133,39 @@ def main() -> int:
             rows = await db.list_opinions(200)
             await db.close()
             print(format_opinions(rows))
+        asyncio.run(go())
+        return 0
+    if cmd == "thoughts":
+        async def go():
+            db = Database(cfg.database_url)
+            await db.migrate()
+            rows = await db.list_thoughts(100)
+            await db.close()
+            from zoneinfo import ZoneInfo
+            print(format_thoughts(rows, ZoneInfo(cfg.timezone)))
+        asyncio.run(go())
+        return 0
+    if cmd == "wonder":
+        if not cfg.brave_api_key:
+            print("set BRAVE_API_KEY in .env first")
+            return 1
+        force = sys.argv[2] if len(sys.argv) > 2 else None
+        async def go():
+            db = Database(cfg.database_url)
+            await db.migrate()
+            w = Wanderer(cfg, db, OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url), Brave(cfg.brave_api_key))
+            try:
+                row = await w.wander(force=force)
+            except (SearchError, LLMError, ValueError) as e:
+                print(f"didn't work: {e}")
+                row = None
+            await db.close()
+            if row:
+                print(f"({row['kind']}) {row['question']}\n  thought: {row['thought']}")
+                for src in row["sources"]:
+                    print(f"  read: {src['title']} <{src['url']}>")
+            elif row is None:
+                print("nothing came of it this time (see the log lines above)")
         asyncio.run(go())
         return 0
     if cmd == "flags":

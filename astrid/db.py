@@ -187,6 +187,40 @@ class Database:
 
         return await self._run(op)
 
+    # ---- thoughts (her own reading) ----
+    async def add_thought(self, t: dict, now: float) -> None:
+        await self.execute(
+            "insert into astrid.thoughts (created_at, kind, question, query, sources, thought, learned, for_jordan, "
+            "next_question, share, explicit) values (to_timestamp(%s), %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)",
+            (now, t["kind"], t["question"], t.get("query"), json.dumps(t.get("sources") or []), t["thought"],
+             t.get("learned"), t.get("for_jordan"), t.get("next_question"), t.get("share", 0.3), bool(t.get("explicit"))),
+        )
+
+    async def list_thoughts(self, limit: int = 30) -> list[dict]:
+        return await self.fetch(
+            "select id, extract(epoch from created_at)::float8 as created_at, kind, question, query, sources, thought, "
+            "learned, for_jordan, next_question, share, explicit, surfaced, followed "
+            "from astrid.thoughts order by created_at desc limit %s", (limit,),
+        )
+
+    async def mark_thoughts_surfaced(self, ids: list[int]) -> None:
+        if ids:
+            await self.execute("update astrid.thoughts set surfaced = surfaced + 1 where id = any(%s)", (list(ids),))
+
+    async def mark_thought_followed(self, thought_id: int) -> None:
+        await self.execute("update astrid.thoughts set followed = true where id = %s", (thought_id,))
+
+    async def recent_user_lines(self, limit: int = 60) -> list[str]:
+        rows = await self.fetch(
+            "select content from (select id, content from astrid.messages where role = 'user' order by id desc limit %s) t "
+            "order by id asc", (limit,),
+        )
+        return [r["content"] for r in rows]
+
+    async def last_message_at(self) -> float | None:
+        row = await self.fetchrow("select extract(epoch from max(created_at))::float8 as at from astrid.messages")
+        return row["at"] if row else None
+
     # ---- state ----
     async def get_state(self) -> State:
         row = await self.fetchrow(
@@ -224,6 +258,7 @@ class Database:
     # ---- reset ----
     async def reset_all(self, now: float) -> None:
         """Forget the conversation and put her back to a first-meeting state. Keeps settings."""
-        await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions restart identity")
+        await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions, astrid.thoughts restart identity")
         fresh = State(dict(BASELINE), "neutral", None, None, now)
         await self.save_state(fresh, now, "reset", {}, "fresh start")
+        await self.execute("delete from astrid.settings where key = 'wander_next'")

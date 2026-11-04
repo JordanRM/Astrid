@@ -27,6 +27,7 @@ class Config:
     appraisal_timeout: float = 150.0
     appraisal_max_tokens: int = 2500
     provider_sort: str = "latency"  # OpenRouter routes to the fastest host; "" turns it off
+    brave_api_key: str = ""         # enables her own reading; empty turns it off
 
 
 def _first(env, *names):
@@ -73,4 +74,5 @@ def load_config(env=None) -> Config:
         openrouter_base_url=_first(env, "OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1",
         telegram_api_base=_first(env, "TELEGRAM_API_BASE") or "https://api.telegram.org",
         provider_sort=_provider_sort(env),
+        brave_api_key=_first(env, "BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"),
     )

@@ -29,8 +29,10 @@ EXAMPLES = [
     _e("any", "yeah", "mm. i'll take it"),
     _e("morning", "morning", "morning. you're up early"),
     _e("late_night", "can't sleep", "i'm up. stay a bit, then try again"),
-    _e("any", "what are you up to?", "honestly? waiting for you to text. it's not a rich social calendar"),
+    _e("no_inner_life", "what are you up to?", "honestly? waiting for you to text. it's not a rich social calendar"),
     _e("any", "what else", "that's the whole list. i'm easy to keep up with"),
+    _e("inner_life", "anything interesting today?", "read about how chinatown's ending got changed. towne wanted the hopeful version and polanski overruled him", "polanski was right"),
+    _e("inner_life", "what'd you get up to", "an hour on the voynich manuscript. still unreadable. i think it's a hoax and i'm annoyed it's such a good one"),
     _e("inner_life", "what are you up to?", "read about how ice wine gets made after you mentioned your batch. they pick at minus eight. you'd hate the hours"),
     _e("any", "do you get bored when i'm not around", "not bored. it's quieter. i save things up to tell you"),
     _e("any", "trying to nail the blackbird intro, my thumb keeps getting lost", "slow it right down and let the thumb lead. the melody sits on top once the bass stops wandering"),
@@ -77,9 +79,9 @@ EXAMPLES = [
 ]
 
 
-def active_conditions(state, local_now) -> set:
+def active_conditions(state, local_now, extra=None) -> set:
     v, h = state.values, local_now.hour
-    c = {"any"}
+    c = {"any"} | set(extra or ())
     if 6 <= h < 10:
         c.add("morning")
     if h >= 23 or h < 6:
@@ -101,9 +103,9 @@ def active_conditions(state, local_now) -> set:
     return c
 
 
-def choose(state, local_now, rng: random.Random | None = None, n: int = 8) -> list[Example]:
+def choose(state, local_now, rng: random.Random | None = None, n: int = 8, extra=None) -> list[Example]:
     rng = rng or random.Random()
-    active = active_conditions(state, local_now)
+    active = active_conditions(state, local_now, extra)
     specific = [e for e in EXAMPLES if e.when in active and e.when != "any"]
     opinion = [e for e in EXAMPLES if e.when == "opinion"]
     general = [e for e in EXAMPLES if e.when == "any"]

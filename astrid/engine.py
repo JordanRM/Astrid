@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from . import appraisal, critic, examples, opinions, persona, texting
+from . import appraisal, critic, curiosity, examples, opinions, persona, texting
 from .config import Config
 from .state import apply_deltas, decayed, length_guidance, render
 
@@ -59,9 +59,15 @@ class Astrid:
             recent_user = [m.content for m in history if m.role == "user"][-2:]
             last_reply = [m.content for m in history if m.role == "assistant"][-1:]
             known = opinions.relevant(await self.db.list_opinions(60), recent_user + last_reply)
+            recent_thoughts = await self.db.list_thoughts(30)
+            in_mind = curiosity.select(recent_thoughts, recent_user + last_reply, text, state, now)
+            if in_mind:
+                await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
+            has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)
             system = persona.build_system(
                 render(state, local), gap_note,
-                examples.render(examples.choose(state, local, self.rng)), opinions.render(known),
+                examples.render(examples.choose(state, local, self.rng, extra={"inner_life" if has_inner else "no_inner_life"})),
+                opinions.render(known), curiosity.render(in_mind, now),
             )
             reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
             messages = (

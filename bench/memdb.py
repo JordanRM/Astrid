@@ -6,8 +6,9 @@ from astrid.state import State
 
 
 class MemoryDB:
-    def __init__(self, state: State, opinions: list | None = None):
+    def __init__(self, state: State, opinions: list | None = None, thoughts: list | None = None):
         self.state = state
+        self.thoughts = list(thoughts or [])
         self.opinions = list(opinions or [])
         self.messages: list[Message] = []
 
@@ -23,3 +24,11 @@ class MemoryDB:
 
     async def list_opinions(self, limit=60):
         return self.opinions[:limit]
+
+    async def list_thoughts(self, limit=30):
+        return self.thoughts[:limit]
+
+    async def mark_thoughts_surfaced(self, ids):
+        for t in self.thoughts:
+            if t.get("id") in ids:
+                t["surfaced"] = (t.get("surfaced") or 0) + 1

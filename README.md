@@ -42,6 +42,18 @@ Watch her logs: `journalctl -u astrid -f`
 
 The first person to message the bot becomes its owner; everyone else is ignored. Set `OWNER_TELEGRAM_ID` in `.env` to lock it to a specific account.
 
+## Her own reading
+
+With `BRAVE_API_KEY` in `.env`, she reads on her own time: every 2 to 4 hours between 8am and midnight, plus once
+between 1 and 5am. She skips a run while you're mid-conversation. Each run she picks a question from something you said,
+one of her own views, a question she left herself, an open nudge, or (more often when things are close) something about
+sex and desire. Then she searches with safe search off, reads a page or two and keeps a short thought. Thoughts stay
+private unless they fit the conversation or you ask what she's been up to.
+
+    .venv/bin/python -m astrid thoughts          # what she's read and made of it, with links
+    .venv/bin/python -m astrid wonder            # send her off to read something now
+    .venv/bin/python -m astrid wonder desire     # or force a kind: thread, opinion, follow, drift, desire
+
 ## Tests
 
 `python -m pytest tests` needs a local PostgreSQL (see `tests/conftest.py` for the connection string) and runs the real database code against it, with the model and Telegram APIs mocked.
