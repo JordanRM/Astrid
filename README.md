@@ -51,6 +51,18 @@ The first person to message the bot becomes its owner; everyone else is ignored.
 Arousal and irritation cool within hours (half-life 4h and 8h), and every exchange moves her a little, so set it
 right before you start. `reset` puts her back to a first meeting.
 
+## Heated mode (explicit chat)
+
+When she's aroused (3.5+) and you've gone sexual in your last few messages, she switches to a separate set of rules,
+examples and checks (`astrid/heated.py`): direct plain words that mirror yours, a new concrete step every reply,
+warm and caring rather than commanding, and staying inside the scene (no "three hundred kilometers away", no real hands).
+Her everyday memories and reading are left out while it's on, and it ends as soon as you change the subject.
+To give it its own model, set `HEATED_MODEL=<openrouter id>` in `.env`; empty means the normal reply model.
+
+    .venv/bin/python -m bench.models                       # models with no extra OpenRouter moderation, under $3/M output
+    .venv/bin/python -m bench.models deepseek minimax      # or search by name
+    .venv/bin/python -m bench --models a,b,c --scenarios heated --serve
+
 ## Her own reading
 
 With `BRAVE_API_KEY` in `.env`, she reads on her own time: every 2 to 4 hours between 8am and midnight, plus once

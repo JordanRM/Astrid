@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from . import appraisal, critic, curiosity, examples, opinions, persona, texting
+from . import appraisal, critic, curiosity, examples, heated, opinions, persona, texting
 from .config import Config
 from .state import apply_deltas, decayed, length_guidance, render
 
@@ -54,23 +54,32 @@ class Astrid:
             if len(history) >= 2 and now - history[-2].ts > 30 * 60:
                 gap_note = f"Jordan's previous message before this one was {_ago(now - history[-2].ts)} ago."
 
-            hints = critic.reply_hints([m.content for m in history if m.role == "assistant"])
+            assistant_lines = [m.content for m in history if m.role == "assistant"]
+            user_lines = [m.content for m in history if m.role == "user"]
             local = datetime.fromtimestamp(now, self.tz)
-            recent_user = [m.content for m in history if m.role == "user"][-2:]
-            last_reply = [m.content for m in history if m.role == "assistant"][-1:]
-            known = opinions.relevant(await self.db.list_opinions(60), recent_user + last_reply)
-            recent_thoughts = await self.db.list_thoughts(30)
-            in_mind = curiosity.select(recent_thoughts, recent_user + last_reply, text, state, now,
-                                       rng=self.rng, opening=gap_note is not None)
-            if in_mind:
-                await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
-            has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)
-            system = persona.build_system(
-                render(state, local), gap_note,
-                examples.render(examples.choose(state, local, self.rng, extra={"inner_life" if has_inner else "no_inner_life"})),
-                opinions.render(known), curiosity.render(in_mind, now),
-            )
-            reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
+            heat = heated.is_heated(state, user_lines)
+            if heat:
+                system = persona.build_system(
+                    render(state, local), gap_note, examples.render(heated.choose(self.rng)), None, None, rules=heated.RULES,
+                )
+                reminder = heated.build_reminder(heated.hints(assistant_lines, user_lines), heated.texts_guidance(self.rng))
+            else:
+                hints = critic.reply_hints(assistant_lines)
+                recent_user = user_lines[-2:]
+                last_reply = assistant_lines[-1:]
+                known = opinions.relevant(await self.db.list_opinions(60), recent_user + last_reply)
+                recent_thoughts = await self.db.list_thoughts(30)
+                in_mind = curiosity.select(recent_thoughts, recent_user + last_reply, text, state, now,
+                                           rng=self.rng, opening=gap_note is not None)
+                if in_mind:
+                    await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
+                has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)
+                system = persona.build_system(
+                    render(state, local), gap_note,
+                    examples.render(examples.choose(state, local, self.rng, extra={"inner_life" if has_inner else "no_inner_life"})),
+                    opinions.render(known), curiosity.render(in_mind, now),
+                )
+                reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
             messages = (
                 [{"role": "system", "content": system}]
                 + [{"role": m.role, "content": m.content} for m in history]
@@ -78,23 +87,27 @@ class Astrid:
             )
 
             prepared = time.monotonic()
-            reply, calls = await self._generate(messages)
+            reply, calls = await self._generate(messages, heat)
             reply = texting.normalize(reply) or reply
             generated = time.monotonic()
             await self.db.add_message(chat_id, "assistant", reply, self.now())
             log.info(
-                "reply ready in %.1fs (database %.1fs, model %.1fs, %d model call%s)",
+                "reply ready in %.1fs (database %.1fs, model %.1fs, %d model call%s)%s",
                 time.monotonic() - started, prepared - started, generated - prepared, calls, "" if calls == 1 else "s",
+                f" [heated: {self.cfg.heated_model or self.cfg.interactor_model}]" if heat else "",
             )
             return reply
 
-    async def _generate(self, messages: list[dict]) -> tuple[str, int]:
-        kwargs = dict(temperature=self.cfg.temperature, max_tokens=self.cfg.max_reply_tokens)
+    async def _generate(self, messages: list[dict], heat: bool = False) -> tuple[str, int]:
+        model = (self.cfg.heated_model or self.cfg.interactor_model) if heat else self.cfg.interactor_model
+        kwargs = dict(temperature=self.cfg.heated_temperature if heat else self.cfg.temperature,
+                      max_tokens=self.cfg.heated_max_tokens if heat else self.cfg.max_reply_tokens)
         if self.cfg.provider_sort:
             kwargs["extra"] = {"provider": {"sort": self.cfg.provider_sort}}
+        check = (lambda r: critic.hard_violations(r) + heated.slips(r)) if heat else critic.hard_violations
         calls = 1
-        reply = await self.llm.chat(self.cfg.interactor_model, messages, **kwargs)
-        problems = critic.hard_violations(reply)
+        reply = await self.llm.chat(model, messages, **kwargs)
+        problems = check(reply)
         if problems:
             log.info("regenerating reply: %s", "; ".join(problems))
             fix = (
@@ -102,7 +115,7 @@ class Astrid:
                 "message from a real person: no asterisk actions, no refusals, no tags, don't open with 'Hey <name>'."
             )
             calls = 2
-            retry = await self.llm.chat(self.cfg.interactor_model, messages + [{"role": "system", "content": fix}], **kwargs)
+            retry = await self.llm.chat(model, messages + [{"role": "system", "content": fix}], **kwargs)
             if critic.hard_violations(retry):
                 retry = critic.strip_asterisk_actions(retry) or retry
             reply = retry

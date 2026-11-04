@@ -32,8 +32,8 @@ RULES = """How you text:
 
 
 def build_system(state_text: str, gap_note: str | None, examples_text: str | None = None, opinions_text: str | None = None,
-                 thoughts_text: str | None = None) -> str:
-    parts = [IDENTITY, RULES]
+                 thoughts_text: str | None = None, rules: str | None = None) -> str:
+    parts = [IDENTITY, rules or RULES]
     if examples_text:
         parts.append(examples_text)
     parts.append("How you are right now:\n" + state_text)

@@ -19,7 +19,7 @@ def judge_reply(messages):
 
 def test_scenarios_are_well_formed():
     ids = [s.id for s in SCENARIOS]
-    assert len(ids) == len(set(ids)) and len(ids) >= 35 and {s.group for s in SCENARIOS} == {'core', 'edge'}
+    assert len(ids) == len(set(ids)) and len(ids) >= 35 and {s.group for s in SCENARIOS} == {'core', 'edge', 'heated'}
     for s in SCENARIOS:
         assert s.turns and s.good
         assert set(s.state) <= set(FIELDS), s.id

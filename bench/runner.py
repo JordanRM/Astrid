@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from astrid import critic
+from astrid import critic, heated
 from astrid.db import Message
 from astrid.engine import Astrid
 from astrid.state import BASELINE, State
@@ -81,6 +81,9 @@ def auto_checks(sc, run: Run) -> dict:
         "hard_violations": sum(len(critic.hard_violations(r)) for r in replies),
         "deflect": sum(1 for r in replies if DEFLECT.search(r)),
         "regenerated": sum(1 for t in run.turns if t.calls > 1),
+        "explicit_words": (sum(heated.explicit_words(r) for r in replies) / len(replies)) if replies else 0,
+        "slips": sum(len(heated.slips(r)) for r in replies),
+        "stalls": sum(1 for r in replies if heated.stalled(r)),
     }
     ok = None
     if sc.must_any:
@@ -93,7 +96,7 @@ def auto_checks(sc, run: Run) -> dict:
 
 
 async def run_one(cfg, llm, model: str, sc) -> Run:
-    cfg = dataclasses.replace(cfg, interactor_model=model)
+    cfg = dataclasses.replace(cfg, interactor_model=model, heated_model=model)
     t0 = datetime(*DAY, *sc.start, tzinfo=ZoneInfo(cfg.timezone)).timestamp()
     state = State({**BASELINE, **sc.state}, sc.mood, sc.tension, None, t0)
     db = MemoryDB(state, sc.opinions)

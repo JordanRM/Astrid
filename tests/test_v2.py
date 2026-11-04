@@ -1,3 +1,4 @@
+import time
 import asyncio
 import json
 import random
@@ -8,6 +9,7 @@ from astrid import appraisal, examples, opinions, texting
 from astrid.db import Database
 from astrid.engine import Astrid
 from astrid.state import BASELINE, State, decayed, render
+from astrid.config import Config
 from conftest import FakeLLM, make_cfg
 
 TZ = ZoneInfo("America/Toronto")
@@ -263,3 +265,96 @@ def test_state_assignments_parse_and_clamp():
     from astrid.examples import active_conditions
     from astrid.state import State
     assert "heated" in active_conditions(State(dict(PRESETS["heated"]), "x", None, None, 1.0), at(23))
+
+
+# ---- heated mode ----
+def _heat_state(**kw):
+    from astrid.state import PRESETS, State
+    v = dict(PRESETS["heated"]); v.update(kw)
+    return State(v, "wanting you", None, None, 1.0)
+
+
+def test_heated_mode_turns_on_for_arousal_plus_explicit_words_and_off_otherwise():
+    from astrid import heated
+    from astrid.state import BASELINE, State
+    assert heated.is_heated(_heat_state(), ["my cock is hard"])
+    assert heated.is_heated(_heat_state(), ["hey you"])                    # keen enough to steer there herself
+    assert not heated.is_heated(_heat_state(arousal=3), ["my cock is hard"])
+    assert not heated.is_heated(_heat_state(irritation=4), ["my cock is hard"])
+    assert not heated.is_heated(State(dict(BASELINE), "x", None, None, 1.0), ["my cock is hard"])
+    assert not heated.is_heated(_heat_state(arousal=5), ["work was hard", "the weather's wet", "that sucks"])
+    assert heated.is_heated(_heat_state(arousal=5), ["cum for me", "anyway", "what time is it"])   # still hot for two more messages
+
+
+def test_heated_checks_catch_the_flagged_habits():
+    from astrid import heated
+    assert heated.slips("when you're three hundred kilometers away and i've got nothing but my own hands")
+    assert not heated.slips("i'd take you in my mouth, slow")
+    assert heated.stalled("not yet. keep your hands behind your head")
+    hints = heated.hints(["good. keep it there, not yet. don't you dare move", "hands where i put them, i decide when", "then wait"], ["i want to cum", "my cock aches"])
+    text = " ".join(hints)
+    assert "cum" in text and "cock" in text and "holding him in place" in text and "commanding" in text
+    assert any("too vague" in h for h in heated.hints(["i want you wrecked by the end"], ["my cock is hard"]))
+    assert heated.explicit_words("i'd take your cock in my mouth and suck") == 2
+
+
+def test_heated_reply_uses_heated_prompt_model_and_leaves_out_everyday_material(db_url):
+    from astrid.config import Config
+    from astrid.db import Database
+    from astrid.engine import Astrid
+    from astrid.state import PRESETS, State
+
+    async def go():
+        db = Database(db_url)
+        await db.migrate()
+        await db.add_thought({"kind": "drift", "question": "lanark founding", "thought": "weavers", "share": 0.9}, time.time())
+        st = State(dict(PRESETS["heated"]), "wanting you", None, None, time.time())
+        await db.save_state(st, time.time(), "test", {}, None)
+        cfg = Config(database_url=db_url, openrouter_api_key="k", telegram_token="t", interactor_model="plain", thinking_model="t",
+                     heated_model="spicy")
+        llm = FakeLLM()
+        llm.script("spicy", "i'd take your cock in my mouth, slow")
+        llm.script("plain", "ok")
+        bot = Astrid(cfg, db, llm)
+        hot = await bot.reply(1, "my cock is so hard")
+        await db.save_state(State(dict(PRESETS["fresh"]), "neutral", None, None, time.time()), time.time(), "test", {}, None)
+        cool = await bot.reply(1, "hey, how was your day")
+        await db.close()
+        return hot, cool, llm
+    hot, cool, llm = asyncio.run(go())
+    first, second = llm.calls[0], llm.calls[-1]
+    assert first["model"] == "spicy" and first["max_tokens"] == 500 and first["temperature"] == 1.0
+    sysmsg = first["messages"][0]["content"]
+    assert "middle of something heated" in sysmsg and "lanark founding" not in sysmsg and "Views you've already formed" not in sysmsg
+    assert second["model"] == "plain" and "middle of something heated" not in second["messages"][0]["content"]
+    assert hot.startswith("i'd take")
+
+
+def test_heated_slip_triggers_one_rewrite(db_url):
+    from astrid.config import Config
+    from astrid.db import Database
+    from astrid.engine import Astrid
+    from astrid.state import PRESETS, State
+
+    async def go():
+        db = Database(db_url)
+        await db.migrate()
+        await db.save_state(State(dict(PRESETS["heated"]), "x", None, None, time.time()), time.time(), "t", {}, None)
+        cfg = Config(database_url=db_url, openrouter_api_key="k", telegram_token="t", interactor_model="m", thinking_model="t")
+        llm = FakeLLM()
+        llm.script("m", "you're three hundred kilometers away with nothing but my own hands", "i'd take you in my mouth")
+        out = await Astrid(cfg, db, llm).reply(1, "my cock is so hard")
+        await db.close()
+        return out, len(llm.calls)
+    assert asyncio.run(go()) == ("i'd take you in my mouth", 2)
+
+
+def test_explicit_bench_scenarios_exist_and_use_the_heated_judge():
+    from bench import judge, scenarios
+    hot = [s for s in scenarios.SCENARIOS if s.group == "heated"]
+    assert len(hot) >= 8 and all(s.explicit and s.state["arousal"] >= 6 for s in hot)
+    assert "DIRECT" in judge.HEATED_SYSTEM and "three hundred kilometers" in judge.HEATED_SYSTEM
+    from bench.models import rows, render
+    items = rows([{"id": "a/b", "name": "B", "pricing": {"prompt": "0.0000005", "completion": "0.000001"}, "top_provider": {"is_moderated": False, "context_length": 8000}},
+                  {"id": "c/d", "name": "D", "pricing": {"prompt": "0", "completion": "0"}, "top_provider": {"is_moderated": True}}], [])
+    assert [r["id"] for r in items] == ["a/b"] and "a/b" in render(items)
