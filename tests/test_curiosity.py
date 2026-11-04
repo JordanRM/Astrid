@@ -61,6 +61,9 @@ def test_minor_guard():
     assert curiosity.unsafe_query("teen sex", False)
     assert not curiosity.unsafe_query("teen pop history", False)
     assert not curiosity.unsafe_query("why people like being tied up", True)
+    assert curiosity.unsafe_query("sex with a dog", False) and curiosity.unsafe_query("horse", True)
+    assert curiosity.unsafe_query("zoophilia history", False)
+    assert not curiosity.unsafe_query("how sled dogs are trained", False) and not curiosity.unsafe_query("doggy style tips", True)
 
 
 def test_desire_gets_likelier_when_close_and_wanting():
@@ -166,3 +169,19 @@ def test_reset_clears_thoughts_and_schedule(db_url):
         await db.close()
         return out
     assert asyncio.run(go()) == ([], None)
+
+
+def test_she_sometimes_brings_one_up_herself_mostly_when_he_comes_back():
+    now = at(2026, 11, 3, 20)
+    keen = {"id": 7, "created_at": now - 3600, "question": "how sled dogs pick a leader", "thought": "it's not the strongest one", "share": 0.8, "explicit": False, "surfaced": 0}
+    hot = {"id": 8, "created_at": now - 3600, "question": "x", "thought": "y", "share": 0.9, "explicit": True, "surfaced": 0}
+
+    def rate(opening, state, items):
+        rng = random.Random(5)
+        return sum(bool(curiosity.select(items, ["hey"], "hey", state, now, rng=rng, opening=opening)) for _ in range(2000)) / 2000
+    assert 0.25 < rate(True, st(), [keen]) < 0.45 and rate(False, st(), [keen]) < 0.15
+    assert rate(True, st(), [hot]) == 0 and rate(True, st(arousal=6), [hot]) > 0.25
+    assert rate(True, st(irritation=6), [keen]) == 0
+    picked = curiosity.select([keen], ["hey"], "hey", st(), now, rng=random.Random(0), opening=True) or \
+        next(p for p in (curiosity.select([keen], ["hey"], "hey", st(), now, rng=random.Random(i), opening=True) for i in range(50)) if p)
+    assert "bring it up yourself" in curiosity.render(picked, now)

@@ -46,13 +46,19 @@ DESIRE = (
     "like and why. Explicit is fine; look it up like an adult would."
 )
 
-# Never research sex involving minors, whatever the seed.
+# Never research sex involving minors or animals, whatever the seed.
 _SEXUAL = re.compile(r"\b(sex|sexual|porn|nude|naked|erotic|kink|fetish|orgasm|fuck|nsfw|bdsm)", re.I)
 _MINOR = re.compile(r"\b(child|children|kid|kids|minor|minors|underage|teen|teens|teenage|preteen|loli|shota|schoolgirl|young girl|young boy)\b", re.I)
+_ANIMAL = re.compile(r"\b(animal|animals|dog|dogs|horse|horses|donkey|pig|pigs|goat|goats|sheep|cow|cows|canine|equine)\b", re.I)
+_ALWAYS = re.compile(r"bestial|zoophil|\bzoo ?sex|cub ?porn|\bpedo|paedo|\bcp\b", re.I)
 
 
 def unsafe_query(query: str, explicit_seed: bool) -> bool:
-    return bool(_MINOR.search(query or "")) and (explicit_seed or bool(_SEXUAL.search(query or "")))
+    q = query or ""
+    if _ALWAYS.search(q):
+        return True
+    sexual = explicit_seed or bool(_SEXUAL.search(q))
+    return sexual and bool(_MINOR.search(q) or _ANIMAL.search(q))
 
 
 CHOOSE = """You are the private inner voice of Astrid, an AI who texts with Jordan. Right now he isn't around and you have time to yourself. You can look something up on the web and read about it.
@@ -174,7 +180,7 @@ class Wanderer:
             log.info("wander: nothing chosen (%s)", kind)
             return None
         if unsafe_query(query + " " + question, kind == "desire"):
-            log.warning("wander: dropped a query that touches minors: %r", query)
+            log.warning("wander: dropped a query that touches minors or animals: %r", query)
             return None
 
         results = [r for r in await self.brave.search(query) if search_mod.readable(r["url"])]
@@ -274,9 +280,13 @@ def asks_whats_up(text: str) -> bool:
     return bool(_WHATS_UP.search(text or ""))
 
 
-def select(thoughts: list[dict], texts: list[str], latest: str, state, now: float, limit: int = 3) -> list[dict]:
-    """Thoughts worth having in mind for this reply: ones that match the conversation, plus her latest few if he
-    asked what she's been up to. Explicit ones only come up unprompted when things are already close or heated."""
+def select(thoughts: list[dict], texts: list[str], latest: str, state, now: float, limit: int = 3,
+           rng: random.Random | None = None, opening: bool = False) -> list[dict]:
+    """Thoughts worth having in mind for this reply: ones that match the conversation, her latest few if he asked
+    what she's been up to, and now and then one she wants to tell him herself (likelier when he's just come back).
+    Explicit ones only come up unasked when things are already close or heated."""
+    rng = rng or random.Random()
+    open_to_explicit = state.values["arousal"] >= 4 or state.values["affection"] >= 5
     fresh = [t for t in thoughts if now - float(t.get("created_at") or now) < 10 * 86400]
     query = set()
     for t in texts:
@@ -289,10 +299,14 @@ def select(thoughts: list[dict], texts: list[str], latest: str, state, now: floa
     scored.sort(key=lambda x: -x[0])
     picked = [t for _, t in scored[:2]]
     if asks_whats_up(latest):
-        open_to_explicit = state.values["arousal"] >= 4 or state.values["affection"] >= 5
         pool = [t for t in fresh if t not in picked and (open_to_explicit or not t.get("explicit"))]
         pool.sort(key=lambda t: (int(t.get("surfaced") or 0) >= 2, -float(t.get("created_at") or 0)))
         picked += pool[: max(0, limit - len(picked))]
+    elif not picked and state.values["irritation"] < 5 and rng.random() < (0.35 if opening else 0.08):
+        keen = [t for t in fresh if not t.get("surfaced") and float(t.get("share") or 0) >= 0.5
+                and now - float(t["created_at"]) < 3 * 86400 and (open_to_explicit or not t.get("explicit"))]
+        if keen:
+            picked.append(dict(max(keen, key=lambda t: float(t.get("share") or 0)), offer=True))
     return picked[:limit]
 
 
@@ -311,8 +325,9 @@ def render(thoughts: list[dict], now: float) -> str | None:
         return None
     lines = [
         "Things you looked up and read on your own time recently. They're real, and they're yours. Don't recite them or "
-        "drop them in as trivia. Mention one only if it actually fits what you two are talking about, or he asks what "
-        "you've been up to, and then say what you made of it, briefly. At most one per reply, and it's fine to mention none."
+        "drop them in as trivia. Mention one if it fits what you two are talking about, if he asks what you've been up "
+        "to, or if it's marked as something you want to tell him and there's a natural opening (skip it if he's in the "
+        "middle of something). Say what you made of it, briefly. At most one per reply, and it's fine to mention none."
     ]
     for t in thoughts:
         line = f"- {_ago(now - float(t['created_at']))}, you wondered: {t['question']}. what you made of it: {t['thought']}"
@@ -320,6 +335,8 @@ def render(thoughts: list[dict], now: float) -> str | None:
             line += f" (detail: {t['learned']})"
         if t.get("for_jordan"):
             line += f" (why he might care: {t['for_jordan']})"
+        if t.get("offer"):
+            line += " (you've been wanting to tell him about this one; you can bring it up yourself)"
         lines.append(line)
     return "\n".join(lines)
 

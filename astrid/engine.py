@@ -60,7 +60,8 @@ class Astrid:
             last_reply = [m.content for m in history if m.role == "assistant"][-1:]
             known = opinions.relevant(await self.db.list_opinions(60), recent_user + last_reply)
             recent_thoughts = await self.db.list_thoughts(30)
-            in_mind = curiosity.select(recent_thoughts, recent_user + last_reply, text, state, now)
+            in_mind = curiosity.select(recent_thoughts, recent_user + last_reply, text, state, now,
+                                       rng=self.rng, opening=gap_note is not None)
             if in_mind:
                 await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
             has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)

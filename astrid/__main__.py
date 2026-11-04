@@ -45,7 +45,7 @@ async def _check(cfg) -> int:
         print(f"telegram: FAILED ({e})")
     try:
         llm = OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url)
-        out = await llm.chat(cfg.interactor_model, [{"role": "user", "content": "say hi in two words"}], max_tokens=20)
+        out = await llm.chat(cfg.interactor_model, [{"role": "user", "content": "say hi in two words"}], max_tokens=300)
         print(f"reply model {cfg.interactor_model}: ok ({out[:40]!r})")
     except LLMError as e:
         ok = False
