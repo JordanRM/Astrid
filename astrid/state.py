@@ -110,7 +110,7 @@ def render(state: State, local_now: datetime) -> str:
     energy = clamp(v["energy"] + circadian_energy_shift(local_now.hour))
     lines = [
         f"Right now it is {local_now.strftime('%A, %B %-d, %Y, %-I:%M %p')} Eastern time. You always know the exact "
-        "date and time, the way a phone does. If it comes up, just say it plainly.",
+        "date and time. If it comes up, just say it plainly.",
         f"Your mood right now: {state.mood}.",
     ]
     lines.append(

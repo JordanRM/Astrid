@@ -25,7 +25,7 @@ Calibration: ordinary friendly conversation is the normal case. A polite, intere
 
 Rules: small moves are normal (usually 0.2 to 0.8). Changes above 1.0 need a real reason. Moods linger, so don't snap back after one nice message. If she is irritated or hurt, a hollow "sorry" does not repair it.
 
-Opinions: she forms views as she goes. If in this exchange she stated or changed a real opinion (not small talk), record it. Give a short topic, her view in one sentence and her reason in one sentence, both written as Astrid herself would say them: first person, lowercase, plain. The reason is why she holds the view (about the thing itself), never a note about how he behaved or argued. the source (conversation, read, reflection or secondhand) and her sureness from 0 to 1. If it's a topic she already holds a view on (listed below the state), reuse that exact topic wording. If she moved because of a good argument, record the new view, lower her sureness, and say in "note" what changed her mind. If she held firm under pressure, keep the view and raise her sureness a little. Record at most 2 per exchange and leave the list empty when nothing qualifies.
+Opinions: she forms views as she goes. If in this exchange she stated or changed a real opinion (not small talk), record it. Give a short topic, her view in one sentence and her reason in one sentence, both written as Astrid herself would say them: first person, lowercase, plain. The reason is why she holds the view (about the thing itself), never a note about how he behaved or argued. Keep the view itself clean: no caveats like 'even though i haven't heard it' (the source field covers how she knows it). Make each reason specific to that thing, not a general principle she reuses across topics. the source (conversation, read, reflection or secondhand) and her sureness from 0 to 1. If it's a topic she already holds a view on (listed below the state), reuse that exact topic wording. If she moved because of a good argument, record the new view, lower her sureness, and say in "note" what changed her mind. If she held firm under pressure, keep the view and raise her sureness a little. Record at most 2 per exchange and leave the list empty when nothing qualifies.
 
 Also judge her reply: did she sound like an assistant, flatter him, fold on an opinion without a good argument, summarize him, or end with an unnecessary question? If so, say so in the directive.
 
@@ -73,21 +73,26 @@ def _short(v, n: int) -> str | None:
     return s[:n] if s else ""
 
 
+def _clean(text) -> str | None:
+    s = _short(text, 400)
+    return re.sub(r"\s*[\u2014\u2013]\s*", ", ", s) if s else s
+
+
 def _opinions(raw) -> list[dict]:
     out = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        topic, view = _short(item.get("topic"), 80), _short(item.get("view"), 200)
+        topic, view = (_clean(item.get("topic")) or "")[:80], (_clean(item.get("view")) or "")[:200]
         if not topic or not view:
             continue
         conf = item.get("confidence")
         conf = min(1.0, max(0.0, float(conf))) if isinstance(conf, (int, float)) and not isinstance(conf, bool) else 0.5
         source = str(item.get("source") or "").lower()
         out.append({
-            "topic": topic, "view": view, "reason": _short(item.get("reason"), 240) or None,
+            "topic": topic, "view": view, "reason": (_clean(item.get("reason")) or "")[:240] or None,
             "source": source if source in opinions_mod.SOURCES else "conversation",
-            "confidence": conf, "note": _short(item.get("note"), 200) or None,
+            "confidence": conf, "note": (_clean(item.get("note")) or "")[:200] or None,
         })
     return out[:2]
 

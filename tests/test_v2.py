@@ -239,3 +239,14 @@ def test_experience_claims_get_a_nudge_but_negations_do_not():
 
 def test_appraiser_is_told_to_record_her_reason_in_her_own_voice():
     assert "first person" in appraisal.SYSTEM and "never a note about how he behaved" in appraisal.SYSTEM
+
+
+def test_stored_opinions_have_no_dashes_and_the_prompt_asks_for_clean_specific_views():
+    out = appraisal.parse(json.dumps({"opinions": [{"topic": "film", "view": "bleak \u2014 and right", "reason": "the ending \u2013 earned", "note": "x \u2014 y"}]}))
+    o = out["opinions"][0]
+    assert o["view"] == "bleak, and right" and o["reason"] == "the ending, earned" and o["note"] == "x, y"
+    assert "no caveats" in appraisal.SYSTEM and "not a general principle" in appraisal.SYSTEM
+
+
+def test_time_line_has_no_phone_metaphor():
+    assert "phone" not in render(st(), at(15))
