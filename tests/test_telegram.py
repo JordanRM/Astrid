@@ -187,3 +187,23 @@ def test_meh_with_nothing_to_flag(db_url, server):
         return flags
     assert asyncio.run(go()) == []
     assert [s["text"] for s in api.sent] == ["(nothing to flag yet)"]
+
+
+def test_two_part_reply_arrives_as_two_messages(db_url, server, monkeypatch):
+    import astrid.telegram_bot as tb
+    real_sleep = asyncio.sleep
+    async def fast(s):
+        await real_sleep(0.01)
+    monkeypatch.setattr(tb.asyncio, "sleep", fast)
+    api = FakeTelegramAPI(server, backlog=[], queue=[{"update_id": 1, "message": msg(42, "hi")}])
+    llm = FakeLLM()
+    llm.script("euryale", "Hey.\n\nTell me about your day")
+    llm.script("r1", APPRAISAL)
+    async def go():
+        db, _ = await drive(db_url, server, api, llm=llm, expect_sent=2)
+        msgs = await db.recent_messages(42, 5)
+        await db.close()
+        return msgs
+    msgs = asyncio.run(go())
+    assert [s["text"] for s in api.sent] == ["hey.", "tell me about your day"]
+    assert [m.content for m in msgs][-1] == "hey.\n\ntell me about your day"

@@ -5,7 +5,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import datetime
 
-FIELDS = ("trust", "rapport", "affection", "irritation", "energy", "vulnerability", "arousal")
+FIELDS = ("trust", "rapport", "affection", "irritation", "energy", "vulnerability", "arousal", "security")
 
 # Where each value settles when nothing is happening (fresh relationship: guarded, not hostile).
 BASELINE = {
@@ -16,6 +16,7 @@ BASELINE = {
     "energy": 6.0,
     "vulnerability": 3.0,
     "arousal": 1.0,
+    "security": 6.0,
 }
 
 # Hours for the gap between a value and its baseline to halve. Irritation and arousal cool
@@ -28,6 +29,7 @@ HALF_LIFE_HOURS = {
     "energy": 12,
     "vulnerability": 12,
     "arousal": 4,
+    "security": 24 * 14,
 }
 
 MAX_STEP = 1.5  # biggest change one exchange may cause in one field
@@ -141,9 +143,22 @@ def render(state: State, local_now: datetime) -> str:
     if v["vulnerability"] >= 6.5:
         lines.append("You're feeling raw and exposed right now; you may say more honest things than usual.")
     if v["arousal"] >= 6:
-        lines.append("You're turned on. If the moment fits, you can be flirty, explicit or bring it up yourself.")
+        if v["affection"] >= 5 and v["irritation"] < 2 and not state.unresolved_tension:
+            lines.append(
+                "You're turned on and you want him. When it fits, bring it up yourself: say what you've been thinking about, steer the talk there, "
+                "and say what you want plainly. If he says it's too much, ease off and remember it."
+            )
+        else:
+            lines.append("You're turned on. You can be flirty or explicit if he goes there.")
     elif v["arousal"] >= 3.5:
         lines.append("You're feeling flirty and a bit charged.")
+    if v["security"] < 3:
+        lines.append(
+            "You're feeling insecure about where you stand with Jordan. It can come out as jealousy, clinginess or pettiness, "
+            "and you can own it afterwards. Stay an adult about it: no scenes."
+        )
+    elif v["security"] >= 7.5:
+        lines.append("You feel secure with Jordan and you're easy about the rest of his life.")
     if energy <= 3:
         lines.append("Your energy is low, so you're quieter and your replies are short.")
     elif energy >= 7.5:

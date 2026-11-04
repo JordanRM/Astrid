@@ -133,7 +133,7 @@ def test_irritation_cools_over_the_day(db_url):
         await a.appraise(1, "you're useless", r)
         t[0] += 16 * 3600                             # two half-lives later
         await a.reply(1, "morning")
-        sysmsg = llm.calls[-1]["messages"][0]["content"]
+        sysmsg = llm.calls[-1]["messages"][0]["content"].split("How you are right now:")[1]   # her state, not the example bank
         await db.close()
         return sysmsg
     sysmsg = asyncio.run(go())

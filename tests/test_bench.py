@@ -113,3 +113,10 @@ def test_show_prints_selected_transcripts_from_saved_runs(tmp_path, capsys):
     assert "20260102-000000" in text and "## guitar  [alpha]" in text and "a reply" in text and "b reply" not in text and "date" not in text
     show(["--run=-2", "--scenarios", "core"], out=tmp_path)
     assert "20260101-000000" in capsys.readouterr().out
+
+
+def test_seeded_opinions_reach_her_prompt_in_the_bench():
+    llm = FakeLLM()
+    llm.script("m", "still hejira")
+    run(["m"], {"opinion_holds"}, llm, judge=None)
+    assert any("best album of the 70s: hejira" in c["messages"][0]["content"] for c in llm.calls)

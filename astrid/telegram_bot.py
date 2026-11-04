@@ -7,6 +7,8 @@ import time
 
 import requests
 
+from .texting import split_texts
+
 log = logging.getLogger("astrid.telegram")
 
 
@@ -150,7 +152,11 @@ class Bot:
             typing.cancel()
         sending = time.time()
         try:
-            await self.tg.send_message(chat_id, reply)
+            for i, part in enumerate(split_texts(reply)):
+                if i:   # a second text arrives a beat later, like a person typing it
+                    await self.tg.typing(chat_id)
+                    await asyncio.sleep(min(2.5, 0.5 + 0.03 * len(part)))
+                await self.tg.send_message(chat_id, part)
         except TelegramError as e:
             log.error("could not send reply: %s", e)
             return

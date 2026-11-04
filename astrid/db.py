@@ -152,6 +152,41 @@ class Database:
             "select id, created_at, user_text, reply, note, mood from astrid.flags order by id desc limit %s", (limit,)
         )
 
+    # ---- opinions ----
+    async def list_opinions(self, limit: int = 60) -> list[dict]:
+        return await self.fetch(
+            "select topic, view, reason, source, confidence, history, extract(epoch from updated_at)::float8 as updated_at "
+            "from astrid.opinions order by updated_at desc limit %s", (limit,),
+        )
+
+    async def upsert_opinion(self, topic: str, view: str, reason: str | None, source: str, confidence: float,
+                             note: str | None, now: float) -> str:
+        """Save a view. Returns 'formed', 'changed' (the view itself moved, old one goes to history) or 'kept'."""
+        key = " ".join(topic.lower().split())[:80]
+
+        async def op(c):
+            async with c.transaction():
+                cur = await c.execute("select view, confidence, history from astrid.opinions where topic = %s for update", (key,))
+                row = await cur.fetchone()
+                if row is None:
+                    await c.execute(
+                        "insert into astrid.opinions (topic, view, reason, source, confidence) values (%s, %s, %s, %s, %s)",
+                        (key, view, reason, source, confidence),
+                    )
+                    return "formed"
+                changed = " ".join(row["view"].lower().split()) != " ".join(view.lower().split())
+                history = list(row["history"] or [])
+                if changed:
+                    history.append({"at": now, "view": row["view"], "confidence": row["confidence"], "note": note or ""})
+                await c.execute(
+                    "update astrid.opinions set view = %s, reason = %s, source = %s, confidence = %s, history = %s::jsonb, "
+                    "updated_at = to_timestamp(%s) where topic = %s",
+                    (view, reason, source, confidence, json.dumps(history), now, key),
+                )
+                return "changed" if changed else "kept"
+
+        return await self._run(op)
+
     # ---- state ----
     async def get_state(self) -> State:
         row = await self.fetchrow(
@@ -189,6 +224,6 @@ class Database:
     # ---- reset ----
     async def reset_all(self, now: float) -> None:
         """Forget the conversation and put her back to a first-meeting state. Keeps settings."""
-        await self.execute("truncate astrid.messages, astrid.state_history restart identity")
+        await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions restart identity")
         fresh = State(dict(BASELINE), "neutral", None, None, now)
         await self.save_state(fresh, now, "reset", {}, "fresh start")

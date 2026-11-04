@@ -96,7 +96,7 @@ async def run_one(cfg, llm, model: str, sc) -> Run:
     cfg = dataclasses.replace(cfg, interactor_model=model)
     t0 = datetime(*DAY, *sc.start, tzinfo=ZoneInfo(cfg.timezone)).timestamp()
     state = State({**BASELINE, **sc.state}, sc.mood, sc.tension, None, t0)
-    db = MemoryDB(state)
+    db = MemoryDB(state, sc.opinions)
     for i, (role, text) in enumerate(sc.history):
         db.messages.append(Message(role, text, t0 - (len(sc.history) - i) * 60))
     clock, rec = Clock(t0), Recorder(llm)

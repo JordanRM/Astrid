@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from . import appraisal, critic, persona
+from . import appraisal, critic, examples, opinions, persona, texting
 from .config import Config
 from .state import apply_deltas, decayed, length_guidance, render
 
@@ -25,7 +26,8 @@ def _ago(seconds: float) -> str:
 
 
 class Astrid:
-    def __init__(self, cfg: Config, db, llm, clock=time.time):
+    def __init__(self, cfg: Config, db, llm, clock=time.time, rng: random.Random | None = None):
+        self.rng = rng or random.Random()
         self.cfg = cfg
         self.db = db
         self.llm = llm
@@ -54,7 +56,13 @@ class Astrid:
 
             hints = critic.reply_hints([m.content for m in history if m.role == "assistant"])
             local = datetime.fromtimestamp(now, self.tz)
-            system = persona.build_system(render(state, local), gap_note)
+            recent_user = [m.content for m in history if m.role == "user"][-2:]
+            last_reply = [m.content for m in history if m.role == "assistant"][-1:]
+            known = opinions.relevant(await self.db.list_opinions(60), recent_user + last_reply)
+            system = persona.build_system(
+                render(state, local), gap_note,
+                examples.render(examples.choose(state, local, self.rng)), opinions.render(known),
+            )
             reminder = persona.build_reminder(length_guidance(state, local), hints)
             messages = (
                 [{"role": "system", "content": system}]
@@ -64,6 +72,7 @@ class Astrid:
 
             prepared = time.monotonic()
             reply, calls = await self._generate(messages)
+            reply = texting.normalize(reply) or reply
             generated = time.monotonic()
             await self.db.add_message(chat_id, "assistant", reply, self.now())
             log.info(
@@ -123,7 +132,8 @@ class Astrid:
                 state = decayed(await self.db.get_state(), now)
                 history = await self.db.recent_messages(chat_id, 8 + 2 * len(exchanges))
                 earlier = [(m.role, m.content) for m in history[: max(0, len(history) - 2 * len(exchanges))]]
-                messages = appraisal.build_messages(state, earlier, exchanges)
+                held = await self.db.list_opinions(60)
+                messages = appraisal.build_messages(state, earlier, exchanges, held)
                 log.info("appraising %d exchange%s", len(exchanges), "" if len(exchanges) == 1 else "s")
                 result = None
                 for attempt in (1, 2):
@@ -149,6 +159,12 @@ class Astrid:
                 if result["directive"]:
                     new.directive = result["directive"]
                 await self.db.save_state(new, self.now(), "appraisal", applied, result["note"])
+                outcomes = []
+                for o in result["opinions"]:
+                    outcomes.append(f"{o['topic']}: " + await self.db.upsert_opinion(
+                        o["topic"], o["view"], o["reason"], o["source"], o["confidence"], o["note"], self.now()))
+                if outcomes:
+                    log.info("opinions: %s", "; ".join(outcomes))
                 log.info("appraisal saved in %.0fs: mood=%s deltas=%s", time.monotonic() - started, new.mood, applied)
         except asyncio.CancelledError:
             raise
