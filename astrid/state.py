@@ -33,7 +33,7 @@ HALF_LIFE_HOURS = {
 }
 
 MAX_STEP = 1.5  # biggest change one exchange may cause in one field
-STEP_CAPS = {"affection": 0.5}  # love grows slowly: it can never jump in a single exchange
+STEP_CAPS = {"affection": 0.5, "security": 0.6}  # love grows slowly: it can never jump in a single exchange
 
 
 @dataclass

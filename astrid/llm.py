@@ -8,6 +8,8 @@ import time
 
 import requests
 
+from .net import session
+
 log = logging.getLogger("astrid.llm")
 
 
@@ -28,7 +30,7 @@ class OpenRouter:
         last: Exception | None = None
         for attempt in range(3):
             try:
-                r = requests.post(
+                r = session().post(
                     self._base + "/chat/completions",
                     json=payload,
                     headers={

@@ -158,3 +158,60 @@ def test_appraisal_saves_opinions_and_a_changed_mind_is_recorded(db_url):
         return rows
     rows = asyncio.run(go())
     assert rows[0]["view"] == "blue" and rows[0]["history"][0]["view"] == "hejira"
+
+
+# ---- networking ----
+def test_force_ipv4_and_per_thread_sessions():
+    import socket
+    import threading
+    import urllib3.util.connection as cn
+    from astrid import net
+    original = cn.allowed_gai_family
+    try:
+        net.force_ipv4()
+        assert cn.allowed_gai_family() == socket.AF_INET
+    finally:
+        cn.allowed_gai_family = original
+    here = net.session()
+    assert net.session() is here
+    other = []
+    t = threading.Thread(target=lambda: other.append(net.session()))
+    t.start(); t.join()
+    assert other[0] is not here
+
+
+def test_network_failure_on_send_retries_once_but_telegram_refusals_do_not(monkeypatch):
+    from astrid import telegram_bot as tb
+    tg = tb.Telegram("T")
+    calls = []
+
+    def flaky(method, params=None, timeout=20.0):
+        calls.append(method)
+        if len(calls) == 1:
+            raise tb.TelegramError("sendMessage: network ReadTimeout")
+        return {"ok": True}
+
+    async def fast(s):
+        pass
+    monkeypatch.setattr(tg, "_call", flaky)
+    monkeypatch.setattr(tb.asyncio, "sleep", fast)
+    assert asyncio.run(tg.send_message(1, "hi")) == {"ok": True} and len(calls) == 2
+
+    def refused(method, params=None, timeout=20.0):
+        calls.append("refused")
+        raise tb.TelegramError("sendMessage: chat not found", 400)
+    monkeypatch.setattr(tg, "_call", refused)
+    calls.clear()
+    try:
+        asyncio.run(tg.send_message(1, "hi"))
+        assert False
+    except tb.TelegramError:
+        assert calls == ["refused"]
+
+
+def test_opinions_listing_shows_reasons_and_old_views():
+    out = opinions.format_opinions([
+        {"topic": "best album", "view": "blue", "reason": "rawer", "source": "conversation", "confidence": 0.5,
+         "history": [{"view": "hejira", "note": "his point"}]}])
+    assert "best album: blue" in out and "why: rawer" in out and "used to think: hejira (his point)" in out
+    assert opinions.format_opinions([]) == "no opinions yet"

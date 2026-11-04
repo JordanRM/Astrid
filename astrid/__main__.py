@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import time
@@ -10,12 +11,15 @@ from .config import ConfigError, load_config
 from .db import Database
 from .engine import Astrid
 from .llm import LLMError, OpenRouter
+from .net import force_ipv4
+from .opinions import format_opinions
 from .telegram_bot import Bot, Telegram, TelegramError
 
 USAGE = """usage: python -m astrid [command]
   (none)   run the bot
   migrate  create or update the database tables
   check    verify settings, database, Telegram and the reply model
+  opinions list the views she has formed, with reasons and changes of mind
   flags    list replies you flagged with /meh in Telegram
   reset    forget the conversation and put her back to a first meeting (add --yes)"""
 
@@ -63,6 +67,8 @@ async def _run(cfg) -> None:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if not os.environ.get("ASTRID_ALLOW_IPV6"):
+        force_ipv4()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
     if cmd in ("-h", "--help", "help"):
         print(USAGE)
@@ -94,6 +100,15 @@ def main() -> int:
             await db.reset_all(time.time())
             await db.close()
             print("reset done: conversation cleared, state back to baseline")
+        asyncio.run(go())
+        return 0
+    if cmd == "opinions":
+        async def go():
+            db = Database(cfg.database_url)
+            await db.migrate()
+            rows = await db.list_opinions(200)
+            await db.close()
+            print(format_opinions(rows))
         asyncio.run(go())
         return 0
     if cmd == "flags":

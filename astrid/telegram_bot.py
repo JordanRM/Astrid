@@ -7,6 +7,7 @@ import time
 
 import requests
 
+from .net import session
 from .texting import split_texts
 
 log = logging.getLogger("astrid.telegram")
@@ -23,10 +24,15 @@ class Telegram:
         self._url = f"{api_base.rstrip('/')}/bot{token}"
 
     def _call(self, method: str, params: dict | None = None, timeout: float = 20.0) -> dict | list | bool:
+        started = time.monotonic()
         try:
-            r = requests.post(f"{self._url}/{method}", json=params or {}, timeout=timeout)
+            r = session().post(f"{self._url}/{method}", json=params or {}, timeout=timeout)
         except requests.RequestException as e:
             raise TelegramError(f"{method}: network {type(e).__name__}") from None
+        finally:
+            took = time.monotonic() - started
+            if took > 3 and method != "getUpdates":     # long polls are slow by design; everything else should be quick
+                log.warning("slow telegram call: %s took %.1fs", method, took)
         try:
             data = r.json()
         except ValueError:
@@ -49,7 +55,14 @@ class Telegram:
         return await self.call("getUpdates", params, timeout=poll_seconds + 7)
 
     async def send_message(self, chat_id: int, text: str):
-        return await self.call("sendMessage", {"chat_id": chat_id, "text": text})
+        try:
+            return await self.call("sendMessage", {"chat_id": chat_id, "text": text})
+        except TelegramError as e:
+            if e.code is not None:      # Telegram answered and said no; retrying won't help
+                raise
+            log.warning("send failed on the network (%s); trying once more", e)
+            await asyncio.sleep(1)
+            return await self.call("sendMessage", {"chat_id": chat_id, "text": text})
 
     async def typing(self, chat_id: int):
         try:
@@ -154,8 +167,8 @@ class Bot:
         try:
             for i, part in enumerate(split_texts(reply)):
                 if i:   # a second text arrives a beat later, like a person typing it
-                    await self.tg.typing(chat_id)
-                    await asyncio.sleep(min(2.5, 0.5 + 0.03 * len(part)))
+                    asyncio.ensure_future(self.tg.typing(chat_id))
+                    await asyncio.sleep(min(1.8, 0.5 + 0.02 * len(part)))
                 await self.tg.send_message(chat_id, part)
         except TelegramError as e:
             log.error("could not send reply: %s", e)

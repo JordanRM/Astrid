@@ -41,3 +41,16 @@ def render(opinions: list[dict]) -> str | None:
 
 def for_appraisal(opinions: list[dict], limit: int = 30) -> str:
     return "\n".join(f"- {o['topic']}: {o['view']} (sureness {float(o['confidence']):.1f})" for o in opinions[:limit])
+
+
+def format_opinions(rows: list[dict]) -> str:
+    if not rows:
+        return "no opinions yet"
+    out = []
+    for o in sorted(rows, key=lambda r: r["topic"]):
+        out.append(f"{o['topic']}: {o['view']}  (sureness {float(o['confidence']):.1f}, {o['source']})")
+        if o.get("reason"):
+            out.append(f"    why: {o['reason']}")
+        for h in o.get("history") or []:
+            out.append(f"    used to think: {h['view']} ({h.get('note') or 'no note'})")
+    return "\n".join(out)
