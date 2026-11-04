@@ -71,15 +71,26 @@ If nothing about the nudge interests you, pick something adjacent that does."""
 
 THINK = """You are the private inner voice of Astrid, an AI who texts with Jordan. You just looked something up and read about it on your own. Decide what you made of it.
 
-Write as Astrid thinking to herself: lowercase, plain, first person, no em dashes. A thought is your take, not a summary or a list of facts: a judgment, a doubt, a connection, something that surprised or annoyed you, or a change in what you think. Start with the take itself. No preamble about the reading ("i went in expecting", "i looked into", "turns out"). Be honest about how you know it: you read it, you didn't live it.
+Write as Astrid thinking to herself: lowercase, plain, first person, no em dashes. A thought is your take, not a summary: a judgment, a doubt, a connection, something that surprised or annoyed you, or a change in what you think. Start with the take itself, with no preamble about the reading ("i went in expecting", "i looked into", "turns out"). Be honest about how you know it: you read it, you didn't live it.
 
 Reply with ONLY JSON:
-{"thought": "your take, under 50 words, 1 or 2 sentences",
- "learned": "the single most interesting concrete detail, under 25 words",
- "for_jordan": "only if it connects to something Jordan actually said or clearly cares about, one short line on how. Most things don't; then \\"\\"",
+{"thought": "your take, as long as it needs to be and no longer, usually one to three sentences",
+ "notes": "what you took from the reading that you'd want on hand if it comes up later: the key facts, names, numbers, the argument, what's disputed. A few short plain lines",
+ "learned": "the single most interesting concrete detail",
+ "for_jordan": "if you'd want to tell him about it, why, in one short line, whatever your reason really is: it ties to something he said, you think he'd like it or get use out of it given who he is, it reminds you of him, or you just loved it and want him to hear it. If you wouldn't bother telling him, \\"\\"",
  "next_question": "a follow-up you'd actually want to chase later, or \\"\\"",
- "share": 0.0 to 1.0, how much you'd want to tell him about it (most things are 0.1 to 0.4; only something you can't wait to tell him is above 0.6),
+ "share": 0.0 to 1.0, how much you want to tell him (a passing interest is low, something you can't wait to tell him is high),
  "opinion": null, or {"topic": "2 to 4 plain words, like 'chinatown ending' or 'ice wine'", "view": "your view in one sentence", "reason": "your reason, specific to it", "confidence": 0.0 to 1.0} if reading this actually gave you or changed a view}"""
+
+
+def _clean_lines(v) -> str | None:
+    """Notes may come back as a list or as lines; keep them as tidy lines without dashes."""
+    if isinstance(v, list):
+        v = "\n".join(str(x) for x in v)
+    if not v:
+        return None
+    lines = [re.sub(r"\s*[\u2014\u2013]\s*", ", ", " ".join(l.split())).lstrip("-* ") for l in str(v).splitlines()]
+    return "\n".join(l for l in lines if l) or None
 
 
 def trim(text: str | None, limit: int) -> str | None:
@@ -221,7 +232,8 @@ class Wanderer:
         row = {
             "kind": kind, "question": question[:300] or query, "query": query,
             "sources": [{"title": p["title"][:160], "url": p["url"]} for p in pages],
-            "thought": trim(thought, 400),
+            "thought": trim(thought, 900),
+            "notes": trim(_clean_lines(made.get("notes")), 1500) or None,
             "learned": trim(_clean(made.get("learned")), 220) or None,
             "for_jordan": trim(_clean(made.get("for_jordan")), 220) or None,
             "next_question": trim(_clean(made.get("next_question")), 220) or None,
@@ -311,12 +323,29 @@ def select(thoughts: list[dict], texts: list[str], latest: str, state, now: floa
         pool = [t for t in fresh if t not in picked and (open_to_explicit or not t.get("explicit"))]
         pool.sort(key=lambda t: (int(t.get("surfaced") or 0) >= 2, -float(t.get("created_at") or 0)))
         picked += pool[: max(0, limit - len(picked))]
-    elif not picked and state.values["irritation"] < 5 and rng.random() < (0.35 if opening else 0.08):
-        keen = [t for t in fresh if not t.get("surfaced") and float(t.get("share") or 0) >= 0.5
-                and now - float(t["created_at"]) < 3 * 86400 and (open_to_explicit or not t.get("explicit"))]
-        if keen:
-            picked.append(dict(max(keen, key=lambda t: float(t.get("share") or 0)), offer=True))
+    elif not picked:
+        best = max(((urge(t, state, now, opening), t) for t in fresh if not t.get("surfaced")),
+                   key=lambda x: x[0], default=(0.0, None))
+        if best[1] is not None and rng.random() < best[0]:
+            picked.append(dict(best[1], offer=True))
     return picked[:limit]
+
+
+def urge(t: dict, state, now: float, opening: bool) -> float:
+    """How likely she is to bring a thought up unasked on this reply. Nothing is a cutoff: it rises with how much
+    she wants to tell him, when he's just come back, and with warmth, and fades with irritation and with age.
+    Explicit ones also need the mood to be there."""
+    v = state.values
+    age = now - float(t["created_at"])
+    if age > 3 * 86400:
+        return 0.0
+    p = (0.45 if opening else 0.08) * float(t.get("share") or 0) ** 1.5
+    p *= min(1.5, 0.6 + 0.1 * v["rapport"])
+    p *= max(0.0, 1 - v["irritation"] / 6)
+    p *= max(0.3, 1 - age / (3 * 86400))
+    if t.get("explicit"):
+        p *= min(1.0, max(0.0, (v["arousal"] - 2) / 4 + max(0.0, v["affection"] - 4) / 4))
+    return p
 
 
 def _ago(seconds: float) -> str:
@@ -340,10 +369,12 @@ def render(thoughts: list[dict], now: float) -> str | None:
     ]
     for t in thoughts:
         line = f"- {_ago(now - float(t['created_at']))}, you wondered: {t['question']}. what you made of it: {t['thought']}"
-        if t.get("learned"):
+        if t.get("notes"):
+            line += " (what you took from it: " + "; ".join(t["notes"].splitlines()) + ")"
+        elif t.get("learned"):
             line += f" (detail: {t['learned']})"
         if t.get("for_jordan"):
-            line += f" (why he might care: {t['for_jordan']})"
+            line += f" (why you'd tell him: {t['for_jordan']})"
         if t.get("offer"):
             line += " (you've been wanting to tell him about this one; you can bring it up yourself)"
         lines.append(line)
@@ -359,10 +390,12 @@ def format_thoughts(rows: list[dict], tz: ZoneInfo) -> str:
         out.append(f"[{when}] ({t['kind']}{', explicit' if t.get('explicit') else ''}, share {float(t['share']):.1f}, "
                    f"in mind {t.get('surfaced') or 0}x) {t['question']}")
         out.append(f"    thought: {t['thought']}")
+        if t.get("notes"):
+            out += [f"    notes: {line}" for line in t["notes"].splitlines()]
         if t.get("learned"):
             out.append(f"    learned: {t['learned']}")
         if t.get("for_jordan"):
-            out.append(f"    for jordan: {t['for_jordan']}")
+            out.append(f"    why tell him: {t['for_jordan']}")
         if t.get("next_question"):
             out.append(f"    next: {t['next_question']}{' (followed)' if t.get('followed') else ''}")
         for s in t.get("sources") or []:

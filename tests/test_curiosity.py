@@ -171,24 +171,32 @@ def test_reset_clears_thoughts_and_schedule(db_url):
     assert asyncio.run(go()) == ([], None)
 
 
-def test_she_sometimes_brings_one_up_herself_mostly_when_he_comes_back():
+def test_bringing_it_up_unasked_is_graded_not_a_cutoff():
     now = at(2026, 11, 3, 20)
-    keen = {"id": 7, "created_at": now - 3600, "question": "how sled dogs pick a leader", "thought": "it's not the strongest one", "share": 0.8, "explicit": False, "surfaced": 0}
-    hot = {"id": 8, "created_at": now - 3600, "question": "x", "thought": "y", "share": 0.9, "explicit": True, "surfaced": 0}
+    def t(share, explicit=False, age=3600):
+        return {"id": 1, "created_at": now - age, "question": "q", "thought": "x", "share": share, "explicit": explicit, "surfaced": 0}
+    u = curiosity.urge
+    assert u(t(0.8), st(), now, True) > u(t(0.8), st(), now, False) > 0
+    assert u(t(0.8), st(), now, True) > u(t(0.4), st(), now, True) > u(t(0.1), st(), now, True) > 0
+    assert u(t(0.8), st(rapport=8), now, True) > u(t(0.8), st(rapport=2), now, True)
+    assert u(t(0.8), st(irritation=3), now, True) < u(t(0.8), st(), now, True)
+    assert u(t(0.8, age=2 * 86400), st(), now, True) < u(t(0.8), st(), now, True)
+    assert u(t(0.9, explicit=True), st(), now, True) == 0 < u(t(0.9, explicit=True), st(arousal=6), now, True)
+    rng = random.Random(4)
+    hits = [curiosity.select([t(0.8)], ["hey"], "hey", st(), now, rng=rng, opening=True) for _ in range(400)]
+    got = next(h for h in hits if h)
+    assert got[0]["offer"] and "bring it up yourself" in curiosity.render(got, now)
 
-    def rate(opening, state, items):
-        rng = random.Random(5)
-        return sum(bool(curiosity.select(items, ["hey"], "hey", state, now, rng=rng, opening=opening)) for _ in range(2000)) / 2000
-    assert 0.25 < rate(True, st(), [keen]) < 0.45 and rate(False, st(), [keen]) < 0.15
-    assert rate(True, st(), [hot]) == 0 and rate(True, st(arousal=6), [hot]) > 0.25
-    assert rate(True, st(irritation=6), [keen]) == 0
-    picked = curiosity.select([keen], ["hey"], "hey", st(), now, rng=random.Random(0), opening=True) or \
-        next(p for p in (curiosity.select([keen], ["hey"], "hey", st(), now, rng=random.Random(i), opening=True) for i in range(50)) if p)
-    assert "bring it up yourself" in curiosity.render(picked, now)
+
+def test_notes_come_through_and_are_tidy():
+    assert curiosity._clean_lines(["- towne wanted hope \u2014 polanski didn't", "1974"]) == "towne wanted hope, polanski didn't\n1974"
+    now = at(2026, 11, 3, 20)
+    out = curiosity.render([{"created_at": now, "question": "q", "thought": "t", "notes": "a\nb"}], now)
+    assert "what you took from it: a; b" in out
 
 
 def test_trim_cuts_at_a_sentence():
     t = "the folklore does more work than the science. the sightings cluster on paths and roads, not deep swamp, which i"
     assert curiosity.trim(t, 90) == "the folklore does more work than the science."
     assert curiosity.trim("short", 90) == "short"
-    assert "no preamble" in curiosity.THINK.lower() and "under 50 words" in curiosity.THINK
+    assert "no preamble" in curiosity.THINK.lower() and "you just loved it" in curiosity.THINK

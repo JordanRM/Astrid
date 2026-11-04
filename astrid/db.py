@@ -190,16 +190,16 @@ class Database:
     # ---- thoughts (her own reading) ----
     async def add_thought(self, t: dict, now: float) -> None:
         await self.execute(
-            "insert into astrid.thoughts (created_at, kind, question, query, sources, thought, learned, for_jordan, "
-            "next_question, share, explicit) values (to_timestamp(%s), %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s)",
+            "insert into astrid.thoughts (created_at, kind, question, query, sources, thought, notes, learned, for_jordan, "
+            "next_question, share, explicit) values (to_timestamp(%s), %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)",
             (now, t["kind"], t["question"], t.get("query"), json.dumps(t.get("sources") or []), t["thought"],
-             t.get("learned"), t.get("for_jordan"), t.get("next_question"), t.get("share", 0.3), bool(t.get("explicit"))),
+             t.get("notes"), t.get("learned"), t.get("for_jordan"), t.get("next_question"), t.get("share", 0.3), bool(t.get("explicit"))),
         )
 
     async def list_thoughts(self, limit: int = 30) -> list[dict]:
         return await self.fetch(
             "select id, extract(epoch from created_at)::float8 as created_at, kind, question, query, sources, thought, "
-            "learned, for_jordan, next_question, share, explicit, surfaced, followed "
+            "notes, learned, for_jordan, next_question, share, explicit, surfaced, followed "
             "from astrid.thoughts order by created_at desc limit %s", (limit,),
         )
 
