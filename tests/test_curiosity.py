@@ -185,3 +185,10 @@ def test_she_sometimes_brings_one_up_herself_mostly_when_he_comes_back():
     picked = curiosity.select([keen], ["hey"], "hey", st(), now, rng=random.Random(0), opening=True) or \
         next(p for p in (curiosity.select([keen], ["hey"], "hey", st(), now, rng=random.Random(i), opening=True) for i in range(50)) if p)
     assert "bring it up yourself" in curiosity.render(picked, now)
+
+
+def test_trim_cuts_at_a_sentence():
+    t = "the folklore does more work than the science. the sightings cluster on paths and roads, not deep swamp, which i"
+    assert curiosity.trim(t, 90) == "the folklore does more work than the science."
+    assert curiosity.trim("short", 90) == "short"
+    assert "no preamble" in curiosity.THINK.lower() and "under 50 words" in curiosity.THINK

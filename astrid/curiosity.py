@@ -71,15 +71,24 @@ If nothing about the nudge interests you, pick something adjacent that does."""
 
 THINK = """You are the private inner voice of Astrid, an AI who texts with Jordan. You just looked something up and read about it on your own. Decide what you made of it.
 
-Write as Astrid thinking to herself: lowercase, plain, first person, no em dashes. A thought is your take or reaction, not a summary or a list of facts. It can be a judgment, a doubt, a connection, something that surprised or annoyed you, or a change in what you think. Be honest about how you know it: you read it, you didn't live it.
+Write as Astrid thinking to herself: lowercase, plain, first person, no em dashes. A thought is your take, not a summary or a list of facts: a judgment, a doubt, a connection, something that surprised or annoyed you, or a change in what you think. Start with the take itself. No preamble about the reading ("i went in expecting", "i looked into", "turns out"). Be honest about how you know it: you read it, you didn't live it.
 
 Reply with ONLY JSON:
-{"thought": "1 to 3 sentences, your take on what you read",
- "learned": "one short line of the most interesting concrete thing you learned",
- "for_jordan": "if it genuinely connects to Jordan or something you two talked about, one short line on how; otherwise \\"\\"",
+{"thought": "your take, under 50 words, 1 or 2 sentences",
+ "learned": "the single most interesting concrete detail, under 25 words",
+ "for_jordan": "only if it connects to something Jordan actually said or clearly cares about, one short line on how. Most things don't; then \\"\\"",
  "next_question": "a follow-up you'd actually want to chase later, or \\"\\"",
- "share": 0.0 to 1.0, how much you'd want to tell him about it if it came up (most things are low),
- "opinion": null, or {"topic": "short topic", "view": "your view in one sentence", "reason": "your reason, specific to it", "confidence": 0.0 to 1.0} if reading this actually gave you or changed a view}"""
+ "share": 0.0 to 1.0, how much you'd want to tell him about it (most things are 0.1 to 0.4; only something you can't wait to tell him is above 0.6),
+ "opinion": null, or {"topic": "2 to 4 plain words, like 'chinatown ending' or 'ice wine'", "view": "your view in one sentence", "reason": "your reason, specific to it", "confidence": 0.0 to 1.0} if reading this actually gave you or changed a view}"""
+
+
+def trim(text: str | None, limit: int) -> str | None:
+    """Cut at a sentence break so a stored thought never ends mid-word."""
+    if not text or len(text) <= limit:
+        return text
+    cut = text[:limit]
+    end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "))
+    return cut[: end + 1] if end > limit // 3 else cut.rsplit(" ", 1)[0] + "..."
 
 
 def pick_seed(rng: random.Random, state, opinions: list[dict], thoughts: list[dict], user_lines: list[str],
@@ -212,10 +221,10 @@ class Wanderer:
         row = {
             "kind": kind, "question": question[:300] or query, "query": query,
             "sources": [{"title": p["title"][:160], "url": p["url"]} for p in pages],
-            "thought": thought[:600],
-            "learned": (_clean(made.get("learned")) or "")[:300] or None,
-            "for_jordan": (_clean(made.get("for_jordan")) or "")[:300] or None,
-            "next_question": (_clean(made.get("next_question")) or "")[:300] or None,
+            "thought": trim(thought, 400),
+            "learned": trim(_clean(made.get("learned")), 220) or None,
+            "for_jordan": trim(_clean(made.get("for_jordan")), 220) or None,
+            "next_question": trim(_clean(made.get("next_question")), 220) or None,
             "share": min(1.0, max(0.0, float(share))) if isinstance(share, (int, float)) and not isinstance(share, bool) else 0.3,
             "explicit": kind == "desire" or bool(_SEXUAL.search(query)),
         }
