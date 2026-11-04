@@ -33,7 +33,13 @@ _SLIP = re.compile(
 _DESIRE = re.compile(r"\b(want(?:ing)? you|need(?:ing)? you|turned on|your mouth|my mouth|your hands|my hands|on top of you|touch(?:ing)? you|inside me|inside you|thinking about you)\b", re.I)
 # Present-tense play-by-play of her own body, as if it were literally happening ("i reach back", "i wrap my hand").
 _VERBS = (r"reach|wrap|pull|push|slide|sink|grab|spread|kneel|climb|lean|lower|press|put|guide|straddle|arch|rock|roll|grip|lick|suck|"
-          r"kiss|stroke|squeeze|take you|take your|bend|tilt|open|tell you to|moan when|start (?:rocking|riding|sucking|stroking)")
+          r"kiss|stroke|squeeze|take you|take your|bend|tilt|open|tell you|let you|hold you|hold your|moan when|start (?:rocking|riding|sucking|stroking)")
+_BODY = r"(?:tongue|mouth|lips|hands?|fist|thumb|fingers?)"
+_BODY_VERBS = (r"circling|moving|working|pressing|stroking|holding|sliding|wrapped|pulling|squeezing|tracing|dragging|cupping|rolling|rubbing|"
+               r"pumping|lapping|sucking|licking|comes?|goes|moves|slides|drifts|returns|wraps|closes|finds|presses")
+# "my tongue still circling...", "my hand comes back to..." stated as fact rather than as something she'd do
+_NARR_BODY = re.compile(rf"\bmy {_BODY}\b(?: \w+){{0,3}}? (?:{_BODY_VERBS})\b", re.I)
+_CONDITIONAL = re.compile(r"\b(?:i'd|would|imagine|picturing|picture|want|wanna|if i|what i|i'll|i could|you'd)\b", re.I)
 _NARR_I = re.compile(rf"\bi (?:{_VERBS})\b", re.I)
 _NARR_AND = re.compile(rf"\band (?:{_VERBS})\b", re.I)
 # Claims about earlier scenes or a physical setup that were never established.
@@ -47,6 +53,7 @@ _REAL = re.compile(
     r"\bi'?m (?:\w+ing) (?:for you|myself|it)\b",
     re.I,
 )
+_VOICE = re.compile(r"\bmy voice\b", re.I)
 _STALL = re.compile(
     r"\bnot yet\b|don'?t (?:you )?dare|\bi decide\b|until i say|i'?m not (?:done|through)|hands (?:behind|where)|"
     r"stay (?:there|put|still|quiet)|you don'?t (?:get|finish)|not allowed|\bi'?m deciding\b",
@@ -77,12 +84,16 @@ def narrated(reply: str) -> int:
         n = len(_NARR_I.findall(sentence))
         if n:
             total += n + len(_NARR_AND.findall(sentence))
+        if not _CONDITIONAL.search(sentence):
+            total += len(_NARR_BODY.findall(sentence))
     return total
 
 
-def slips(reply: str) -> list[str]:
-    """Hard problems that make the reply get rewritten once."""
+def slips(reply: str, opener: bool = False) -> list[str]:
+    """Hard problems that make the reply get rewritten once. On a fresh start she also can't claim a day or earlier scenes."""
     out = []
+    if opener and _INVENTED.search(reply or ""):
+        out.append("claimed earlier scenes or a day she's had (thinking about him all day, from before); nothing has happened yet")
     if _SLIP.search(reply or ""):
         out.append("brought real-world distance, location or her own hands into the scene")
     if narrated(reply) >= 2:
@@ -114,6 +125,8 @@ def hints(recent_replies: list[str], user_texts: list[str]) -> list[str]:
         out.append("You've been commanding him. Ease off and lead by wanting him instead of ordering him.")
     if sum(1 for r in replies[-3:] if _PRAISE.search(r)) >= 2:
         out.append("You've been praising him a lot. Say what it does to you instead, and keep the praise for when you really mean it.")
+    if any(_VOICE.search(r) for r in replies[-3:]):
+        out.append("You only text, so it's your words, not your voice. Say 'my words' instead of 'my voice'.")
     if user_texts and _REAL.search(user_texts[-1] or ""):
         out.append("He just told you something real about what he's doing or feeling. Acknowledge that as real first and tie it to your words ('just from my words'), instead of treating it as part of an imagined scene.")
     if user_texts and _SLOW.search(" ".join(user_texts[-2:])):
@@ -141,6 +154,7 @@ How you text:
 - Keep track of what has happened and who is doing what to whom. If he says his mouth on your chest, it's his mouth on your chest.
 - Be warm and attentive, even when it's filthy. You lead by wanting him, not by ordering him around. No barked orders, no denying him, no "don't you dare", unless he asks for that. Don't pile on praise. Tell him what he's doing to you when it's true, and let the praise get bigger only when you really feel it.
 - Stay inside the scene. Don't mention distance, where you are, what time it is, or hands you "really" have. Talk about what you'd do, what you want and what you feel.
+- You only text for now, so it's your words, never "my voice" or "hearing me".
 - Don't repeat yourself. No stock lines, no repeated phrases from earlier replies, no similes. Say it fresh and specific.
 - If he steps out ("that's too much", "can we just talk", an everyday question), step out with him at once in your normal voice, with no leftover heat. What happened is still part of what you share, though: you remember it, and you can refer back to it plainly later, in or out of the heat, whenever it fits.
 - Length: as long as the moment needs. Usually two to four sentences, in one to three texts. A longer rush is fine when he's in the middle of it.

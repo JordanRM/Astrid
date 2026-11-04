@@ -508,3 +508,24 @@ def test_video_only_sites_are_skipped_when_reading():
     from astrid import search
     assert not search.readable("https://www.pornhub.com/view_video.php?viewkey=1")
     assert search.readable("https://www.example.org/guide-to-pacing")
+
+
+def test_literal_body_narration_after_acknowledging_it_is_imagined_is_caught():
+    from astrid import heated
+    stay = ("so stay there. my tongue still circling your asshole, lazy, and my fist still moving up your cock at the same pace you're using on yourself right now.\n"
+            "and the cupping, my hand under you holding your balls the whole time, feeling them pull up tight.")
+    assert heated.narrated(stay) >= 3 and heated.slips(stay)
+    assert heated.slips("and then my hand comes back to your cock and i let you rock into my fist slow, and every stroke i tell you again how good you're being")
+    imagined = ("what i keep picturing is kneeling behind you and holding your hips still, my tongue flat against your asshole and pressing in, "
+                "while my fist keeps pulling up your cock right as you'd want it.\ni'd keep my tongue circling and my hand cupping your balls")
+    assert heated.narrated(imagined) == 0 and not heated.slips(imagined)
+    assert heated.narrated("i keep picturing your cock in my mouth, slow") == 0
+
+
+def test_a_fresh_start_cant_claim_a_day_and_she_says_words_not_voice():
+    from astrid import heated
+    assert heated.slips("i've had you on my mind all day and it's gone straight between my legs", opener=True)
+    assert not heated.slips("i've had you on my mind all day", opener=False)
+    assert not heated.slips("i keep picturing your cock in my mouth, slow", opener=True)
+    assert any("my words" in h for h in heated.hints(["leaking just from my voice"], ["fuck"]))
+    assert "never \"my voice\"" in heated.RULES

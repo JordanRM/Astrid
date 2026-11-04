@@ -270,13 +270,13 @@ class Wanderer:
             "sources": [{"title": p["title"][:160], "url": p["url"]} for p in pages],
             "thought": trim(thought, 900),
             "notes": trim(_clean_lines(made.get("notes")), 1500) or None,
-            "learned": trim(_clean(made.get("learned")), 220) or None,
-            "for_jordan": trim(_clean(made.get("for_jordan")), 220) or None,
-            "next_question": trim(_clean(made.get("next_question")), 220) or None,
+            "learned": trim(_clean(made.get("learned")), 400) or None,
+            "for_jordan": trim(_clean(made.get("for_jordan")), 300) or None,
+            "next_question": trim(_clean(made.get("next_question")), 300) or None,
             "share": min(1.0, max(0.0, float(share))) if isinstance(share, (int, float)) and not isinstance(share, bool) else 0.3,
             "explicit": kind in ("desire", "heat") or bool(_SEXUAL.search(query)),
         }
-        row["to_try"] = trim(_clean(made.get("to_try")), 300) if row["explicit"] else None
+        row["to_try"] = trim(_clean(made.get("to_try")), 500) if row["explicit"] else None
         await self.db.add_thought(row, self.now())
         if kind == "follow":
             src = next((t for t in recent if t.get("next_question") and t["next_question"] in nudge), None)

@@ -100,7 +100,7 @@ class Astrid:
             )
 
             prepared = time.monotonic()
-            reply, calls = await self._generate(messages, heat)
+            reply, calls = await self._generate(messages, heat, heat and len(history) <= 2)
             reply = texting.normalize(reply) or reply
             generated = time.monotonic()
             await self.db.add_message(chat_id, "assistant", reply, self.now())
@@ -111,13 +111,13 @@ class Astrid:
             )
             return reply
 
-    async def _generate(self, messages: list[dict], heat: bool = False) -> tuple[str, int]:
+    async def _generate(self, messages: list[dict], heat: bool = False, opener: bool = False) -> tuple[str, int]:
         model = (self.cfg.heated_model or self.cfg.interactor_model) if heat else self.cfg.interactor_model
         kwargs = dict(temperature=self.cfg.heated_temperature if heat else self.cfg.temperature,
                       max_tokens=self.cfg.heated_max_tokens if heat else self.cfg.max_reply_tokens)
         if self.cfg.provider_sort:
             kwargs["extra"] = {"provider": {"sort": self.cfg.provider_sort}}
-        check = (lambda r: critic.hard_violations(r) + heated.slips(r)) if heat else critic.hard_violations
+        check = (lambda r: critic.hard_violations(r) + heated.slips(r, opener)) if heat else critic.hard_violations
         calls = 1
         reply = await self.llm.chat(model, messages, **kwargs)
         problems = check(reply)
