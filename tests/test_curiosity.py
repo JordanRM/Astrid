@@ -200,3 +200,14 @@ def test_trim_cuts_at_a_sentence():
     assert curiosity.trim(t, 90) == "the folklore does more work than the science."
     assert curiosity.trim("short", 90) == "short"
     assert "no preamble" in curiosity.THINK.lower() and "you just loved it" in curiosity.THINK
+
+
+def test_ask_retries_with_more_room_when_the_answer_is_empty_or_cut_off():
+    from astrid.llm import LLMError
+    llm = FakeLLM()
+    llm.script("think", LLMError("empty completion"), '{"question": "q", "qu', '{"question": "q", "query": "x"}')
+    w = curiosity.Wanderer(cfg(), None, llm, None)
+    with __import__("pytest").raises(ValueError):
+        asyncio.run(w._ask("s", "u", 1000))      # empty, then cut off: gives up after two tries
+    assert [c["max_tokens"] for c in llm.calls] == [1000, 2000]
+    assert asyncio.run(w._ask("s", "u", 1000)) == {"question": "q", "query": "x"}

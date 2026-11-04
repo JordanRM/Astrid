@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import search as search_mod
+from .llm import LLMError
 from .appraisal import _clean, _extract_json
 from .opinions import _words
 from .persona import ABOUT_JORDAN
@@ -169,15 +170,26 @@ class Wanderer:
     def stop(self):
         self._stop = True
 
-    async def _ask(self, system: str, user: str, max_tokens: int = 600) -> dict:
+    async def _ask(self, system: str, user: str, max_tokens: int = 2000) -> dict:
+        """The model may think before it answers, and that uses up tokens, so give it plenty of room. If an answer
+        still comes back empty or cut off, try once more with double the room."""
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        raw = ""
         for attempt in (1, 2):
-            raw = await self.llm.chat(self.cfg.thinking_model, msgs, max_tokens=max_tokens, temperature=0.9, timeout=90)
+            try:
+                raw = await self.llm.chat(self.cfg.thinking_model, msgs, max_tokens=max_tokens * attempt,
+                                          temperature=0.9, timeout=120)
+            except LLMError as e:
+                if attempt == 2 or not str(e).startswith("empty"):
+                    raise
+                log.info("wander: empty answer, trying again with more room")
+                continue
             data = _extract_json(raw)
             if data:
                 return data
-            msgs = msgs + [{"role": "user", "content": "Reply with ONLY the JSON object."}]
-        raise ValueError("no usable JSON")
+            log.info("wander: answer wasn't usable JSON (%d chars, ends %r); trying again", len(raw), raw[-80:])
+            msgs = [msgs[0], msgs[1], {"role": "user", "content": "Reply with ONLY the JSON object, complete."}]
+        raise ValueError(f"no usable JSON (model said: {raw[:160]!r})")
 
     async def wander(self, overnight: bool = False, force: str | None = None) -> dict | None:
         """One round: choose a question, search, read, keep a thought. Returns the saved thought, or None."""
@@ -194,7 +206,7 @@ class Wanderer:
             f"It's {local.strftime('%A %-I:%M %p')}. Your mood: {state.mood}.\n{ABOUT_JORDAN}\n\n{nudge}"
             + ("\n\nThings you've read about recently:\n" + "\n".join(f"- {t['question']}" for t in recent[:12]) if recent else "")
         )
-        choice = await self._ask(CHOOSE, context, 300)
+        choice = await self._ask(CHOOSE, context, 1500)
         question, query = _clean(choice.get("question")) or "", " ".join(str(choice.get("query") or "").split())[:200]
         if not query:
             log.info("wander: nothing chosen (%s)", kind)
@@ -224,7 +236,7 @@ class Wanderer:
             + ("\nViews you already hold that might be relevant:\n" + "\n".join(f"- {o['topic']}: {o['view']}" for o in related) if related else "")
             + f"\n\nWhat you read:\n{reading}"
         )
-        made = await self._ask(THINK, user, 700)
+        made = await self._ask(THINK, user, 3000)
         thought = _clean(made.get("thought"))
         if not thought:
             return None
