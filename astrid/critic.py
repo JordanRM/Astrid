@@ -31,6 +31,10 @@ _ABSTRACT = re.compile(
 )
 
 
+# Claiming a human experience she can't have ("i listened to it"). Negations are fine ("i've never played a hand").
+_EXPERIENCE = re.compile(r"\bi(?:'ve| have)?\s+(?!never\b|not\b|haven't\b|didn't\b|can't\b)(?:listened|watched|played|tasted|visited|driven|walked)\b", re.I)
+
+
 def hard_violations(reply: str) -> list[str]:
     return [why for rx, why in _HARD if rx.search(reply)]
 
@@ -78,6 +82,9 @@ def reply_hints(recent_replies: list[str]) -> list[str]:
 
     if sum(1 for r in recent[-4:] if _ABSTRACT.search(r)) >= 2:
         hints.append("You've been vague and philosophical. Talk about something specific and concrete instead.")
+
+    if sum(1 for r in recent[-3:] if _EXPERIENCE.search(r)) >= 1:
+        hints.append("You implied you personally listened to, watched, played or tasted something, which you can't. Say how you actually know it, or just give your take.")
 
     if _repeated_phrase(recent[-4:]):
         hints.append("You've repeated the same phrasing across recent replies. Use fresh words and say something new.")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-MAX_TEXTS = 3
+MAX_TEXTS = 4
 _PREFIX = re.compile(r"^\s*(?:astrid|you)\s*:\s*", re.I)
 
 

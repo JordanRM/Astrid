@@ -28,7 +28,7 @@ def test_normalize_lowercases_strips_dashes_prefix_and_slashes():
 
 def test_split_texts_on_blank_lines_and_caps_at_three():
     assert texting.split_texts("one\n\ntwo") == ["one", "two"]
-    assert texting.split_texts("a\n\nb\n\nc\n\nd\n\ne") == ["a", "b", "c d e"]
+    assert texting.split_texts("a\n\nb\n\nc\n\nd\n\ne\n\nf") == ["a", "b", "c", "d e f"]
     assert texting.split_texts("single line\nstill one") == ["single line\nstill one"]
 
 
@@ -215,3 +215,27 @@ def test_opinions_listing_shows_reasons_and_old_views():
          "history": [{"view": "hejira", "note": "his point"}]}])
     assert "best album: blue" in out and "why: rawer" in out and "used to think: hejira (his point)" in out
     assert opinions.format_opinions([]) == "no opinions yet"
+
+
+def test_double_texting_is_a_per_turn_roll_that_is_mostly_single():
+    from astrid import persona
+    state = st(rapport=5, energy=6)
+    outs = [persona.texts_guidance(state, random.Random(i)) for i in range(400)]
+    single = sum(o.startswith("Send exactly one") for o in outs)
+    assert 0.5 < single / 400 < 0.8                                   # mostly one text, sometimes more
+    assert {"2", "3", "4"} <= {o.split()[3] for o in outs if "separate texts" in o}
+    lively = [persona.texts_guidance(st(rapport=9, energy=9, arousal=6), random.Random(i)) for i in range(400)]
+    assert sum(o.startswith("Send exactly one") for o in lively) < single      # livelier means more double texts
+    note = persona.texts_guidance(state, random.Random(0))
+    assert note in persona.build_reminder("Length: x", [], note)
+    assert note not in persona.build_reminder("Length: x", [])
+
+
+def test_experience_claims_get_a_nudge_but_negations_do_not():
+    from astrid import critic
+    assert any("personally" in h for h in critic.reply_hints(["i listened to it on repeat", "ok"]))
+    assert not any("personally" in h for h in critic.reply_hints(["i've never played a hand", "i can't listen to anything"]))
+
+
+def test_appraiser_is_told_to_record_her_reason_in_her_own_voice():
+    assert "first person" in appraisal.SYSTEM and "never a note about how he behaved" in appraisal.SYSTEM

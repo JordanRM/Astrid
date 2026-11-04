@@ -63,7 +63,7 @@ class Astrid:
                 render(state, local), gap_note,
                 examples.render(examples.choose(state, local, self.rng)), opinions.render(known),
             )
-            reminder = persona.build_reminder(length_guidance(state, local), hints)
+            reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
             messages = (
                 [{"role": "system", "content": system}]
                 + [{"role": m.role, "content": m.content} for m in history]
