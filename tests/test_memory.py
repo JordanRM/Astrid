@@ -702,7 +702,7 @@ def test_she_cant_say_its_late_in_the_evening_or_nag_and_the_first_meeting_ackno
     assert critic.time_slips("hey. you're up late for a wednesday.", 21) and critic.time_slips("it's so late", 14)
     assert not critic.time_slips("hey. you're up late for a wednesday.", 23) and not critic.time_slips("hey. how was the day", 21)
     assert any("nag" in h or "bed" in h for h in critic.reply_hints(["then chill and don't make me nag you at 10:31", "ok"]))
-    assert "Don't manufacture friction" in persona.RULES
+    assert "fine when they come from your mood" in persona.RULES
     async def go():
         c, db, llm, _ = mk(db_url)
         await db.migrate()
@@ -718,3 +718,19 @@ def test_she_cant_say_its_late_in_the_evening_or_nag_and_the_first_meeting_ackno
 
 def at_evening():
     return datetime(2026, 11, 4, 21, 35, tzinfo=__import__("zoneinfo").ZoneInfo("America/Toronto")).timestamp()
+
+
+def test_the_checks_do_not_fire_on_her_own_example_voice():
+    """A guard against the checks piling up: none of the everyday example lines may trip a rewrite or a habit hint by itself."""
+    from astrid import critic, examples
+    offenders = []
+    for e in examples.EXAMPLES:
+        if e.when == "heated":
+            continue
+        for line in e.astrid:
+            hints = critic.reply_hints(["hey", line, "ok"])
+            reading = critic.claimed_reading(line) and e.when != "inner_life"      # reading is only legal when she has read something
+            first = critic.first_contact_slips(line) and e.when != "close_plus"    # 'i missed you' only fits once there's history
+            if critic.hard_violations(line) or critic.time_slips(line, 21) or reading or first or any("neat sayings" in h or "go to bed" in h or "anecdote" in h for h in hints):
+                offenders.append(line)
+    assert offenders == []
