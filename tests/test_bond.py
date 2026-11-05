@@ -25,13 +25,15 @@ def test_gains_past_the_allowance_still_count_a_little_and_losses_are_never_limi
     assert bond.gate({"affection": -0.5, "irritation": 1}, plan) == {"affection": -0.5, "irritation": 1}
 
 
-def test_each_day_has_its_own_openness_that_carries_over_and_dips_when_insecure_or_annoyed():
-    rng = random.Random(1)
-    days = [bond.roll_openness(rng, None, {}) for _ in range(200)]
-    assert min(days) >= 0.2 and max(days) <= 1.6 and max(days) - min(days) > 0.6    # some days open, some not
-    hurt = bond.roll_openness(random.Random(2), 1.0, {"irritation": 4})
-    calm = bond.roll_openness(random.Random(2), 1.0, {})
-    assert hurt < calm
+def test_openness_comes_from_how_things_stand_not_from_chance():
+    new = bond.openness(dict(BASELINE))
+    close = bond.openness({**BASELINE, "trust": 8, "rapport": 8})
+    assert close > new                                                           # earned closeness makes it easier
+    assert bond.openness({**BASELINE, "arousal": 6}) > new                       # desire throws caution to the wind
+    assert bond.openness({**BASELINE, "irritation": 4}) < new                    # annoyance closes her off
+    assert bond.openness({**BASELINE, "security": 3}) < new
+    assert bond.openness(dict(BASELINE), tension=True) < new
+    assert bond.openness(dict(BASELINE)) == new                                  # same situation, same answer
 
 
 def test_chemistry_is_mostly_average_with_a_few_guarded_and_a_few_quick():

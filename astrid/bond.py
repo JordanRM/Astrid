@@ -1,8 +1,8 @@
-"""How quickly she can warm to him: people differ, and days differ.
+"""How quickly she can warm to him: people differ, and how things stand differs.
 
-Chemistry is rolled once for the relationship (most people are about average, some guarded, a few click fast). Each day gets its
-own openness on top of it, carrying over some of yesterday's and dipping when she's insecure or annoyed. Together they set how much
-trust, rapport and affection a day can add. When the day's allowance is used up, further warmth still counts, only a lot less,
+Chemistry is rolled once for the relationship, at the first exchange (most people are about average, some guarded, a few click
+fast). On top of it, how open she is right now comes from the state itself (see openness). Together they set how much trust,
+rapport and affection a day can add. When the day's allowance is used up, further warmth still counts, only a lot less,
 so a long good chat tops out instead of running to "in love". Falling out is never limited."""
 from __future__ import annotations
 
@@ -23,14 +23,21 @@ def roll_chemistry(rng: random.Random) -> float:
     return 1.0
 
 
-def roll_openness(rng: random.Random, yesterday: float | None, values: dict) -> float:
-    fresh = rng.uniform(0.4, 1.5)
-    o = fresh if yesterday is None else 0.6 * fresh + 0.4 * yesterday
-    if values.get("security", 6) < 4:
-        o *= 0.75
-    if values.get("irritation", 1) >= 3:
-        o *= 0.6
-    return round(max(0.2, min(1.6, o)), 2)
+def openness(values: dict, tension: bool = False) -> float:
+    """How easy it is for her to deepen things right now. Not random: it comes from what's built up between them and how she is.
+    Trust and rapport already earned make it easier, arousal throws caution to the wind, feeling raw lets her open up, and
+    insecurity, irritation or something unresolved closes her off."""
+    v = values
+    o = 0.6 + 0.08 * (v.get("trust", 4) - 4) + 0.06 * (v.get("rapport", 3) - 3)
+    if v.get("arousal", 1) >= 5:
+        o += 0.25
+    if v.get("vulnerability", 3) >= 6:
+        o += 0.15
+    if v.get("security", 6) < 4:
+        o -= 0.25
+    if v.get("irritation", 1) >= 3 or tension:
+        o -= 0.35
+    return round(max(0.3, min(1.6, o)), 2)
 
 
 def gate(deltas: dict, plan: dict) -> dict:
@@ -51,16 +58,17 @@ def gate(deltas: dict, plan: dict) -> dict:
     return out
 
 
-async def todays_plan(db, local_date: str, values: dict, rng: random.Random | None = None) -> dict:
+async def todays_plan(db, local_date: str, values: dict, tension: bool = False, rng: random.Random | None = None) -> dict:
     rng = rng or random.Random()
     raw = await db.get_setting("bond_plan")
     plan = json.loads(raw) if raw else {}
     if "chem" not in plan:
         plan["chem"] = roll_chemistry(rng)
     if plan.get("day") != local_date:
-        plan.update(day=local_date, open=roll_openness(rng, plan.get("open"), values), spent={})
+        plan.update(day=local_date, spent={})
+    plan["open"] = openness(values, tension)           # worked out fresh each time, never stored
     return plan
 
 
 async def save_plan(db, plan: dict) -> None:
-    await db.set_setting("bond_plan", json.dumps(plan))
+    await db.set_setting("bond_plan", json.dumps({k: v for k, v in plan.items() if k != "open"}))

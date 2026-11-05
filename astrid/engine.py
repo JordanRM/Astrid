@@ -313,7 +313,7 @@ class Astrid:
                         messages = messages + [
                             {"role": "user", "content": "Reply with ONLY the JSON object described above. No other text."}
                         ]
-                plan = await bond.todays_plan(self.db, datetime.fromtimestamp(self.now(), self.tz).date().isoformat(), state.values)
+                plan = await bond.todays_plan(self.db, datetime.fromtimestamp(self.now(), self.tz).date().isoformat(), state.values, bool(state.unresolved_tension))
                 deltas = bond.gate(result["deltas"], plan)
                 await bond.save_plan(self.db, plan)
                 new, applied = apply_deltas(state, deltas, scale=min(len(exchanges), 3))
