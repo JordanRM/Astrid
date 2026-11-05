@@ -42,9 +42,18 @@ Reply with ONLY JSON:
 _NOT_STRAIGHT = re.compile(r"\bgay\b|\bhomo(?:sexual)?\b|\bmale[- ]?(?:on|with|x)[- ]?male\b|\bm/m\b|\btwinks?\b|\bshemales?\b|\btrann(?:y|ies)\b|\bladyboys?\b|\bfemboys?\b|\btrans(?:gender|sexual)?\b|\bbi(?:sexual)?\b|\bmmf\b|\bgay[- ]for[- ]pay\b|\bmen only\b|\bguys? (?:fuck|suck|sucking|fucking)\b|\bboys?\b", re.I)
 
 
-def unsafe(text: str) -> bool:
+def unsafe_word(text: str) -> str | None:
+    """The first thing in the text that trips the filter, or None."""
     t = text or ""
-    return bool(_ALWAYS.search(t) or _MINOR.search(t) or _ANIMAL.search(t) or _NONCON.search(t) or _REAL.search(t) or _NOT_STRAIGHT.search(t))
+    for rx in (_ALWAYS, _MINOR, _ANIMAL, _NONCON, _REAL, _NOT_STRAIGHT):
+        m = rx.search(t)
+        if m:
+            return m.group(0)
+    return None
+
+
+def unsafe(text: str) -> bool:
+    return unsafe_word(text) is not None
 
 
 def domain_of(url: str) -> str:

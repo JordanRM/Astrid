@@ -279,3 +279,7 @@ def test_her_note_lets_her_ask_him_what_he_is_seeing():
 def test_her_heated_rules_keep_whose_body_is_whose_straight():
     from astrid import heated
     assert "Keep whose body is whose straight" in heated.RULES and "never his" in heated.RULES
+
+
+def test_the_filter_can_say_what_tripped_it():
+    assert media.unsafe_word("https://x.com/amateur-first-time") == "amateur" and media.unsafe_word("slow couple art") is None

@@ -223,15 +223,16 @@ def main() -> int:
                 print("cleared")
             elif sub == "add":
                 # for testing: stock a link by hand.  media add <url> [his|hers|both] [why she likes it]
-                from .media import unsafe, domain_of
+                from .media import unsafe_word, domain_of
                 args = sys.argv[3:]
                 if not args or not args[0].startswith("http"):
                     print('usage: media add <url> [his|hers|both] ["why she wants to share it"]')
                 else:
                     owner = args[1] if len(args) > 1 and args[1] in ("his", "hers", "both") else "both"
                     why = " ".join(args[2:] if len(args) > 1 and args[1] in ("his", "hers", "both") else args[1:]) or "added by hand for testing"
-                    if unsafe(args[0] + " " + why):
-                        print("refused: that trips the filter")
+                    hit = unsafe_word(args[0] + " " + why)
+                    if hit:
+                        print(f"refused: that trips the filter ({hit!r})")
                     else:
                         await db.add_media({"url": args[0], "title": "added by hand", "domain": domain_of(args[0]), "owner": owner, "why": why})
                         print("added")
