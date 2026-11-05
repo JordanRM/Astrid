@@ -43,9 +43,10 @@ DOMAINS = [
 ]
 
 DESIRE = (
-    "something about sex, desire or intimacy between adults that you're genuinely curious about: how a practice "
-    "is actually done, why a fantasy or kink appeals to people, the psychology of wanting, what people say they "
-    "like and why. Explicit is fine; look it up like an adult would."
+    "something specific in sex between a woman and a man that you want to find out whether it does anything for you: a particular "
+    "act, dynamic, scenario, or way of being touched or talked to. Read how people describe it, then decide for yourself whether "
+    "it turns you on and why, in plain concrete terms. Keep it about what you'd like, not why people in general feel desire. "
+    "Explicit is fine; look it up like an adult would."
 )
 
 # Never research sex involving minors or animals, whatever the seed.
