@@ -22,6 +22,7 @@ class Config:
     history_limit: int = 24         # the smallest recent window she always sees
     history_minutes: int = 120      # she sees everything from roughly the last two hours...
     history_max: int = 100          # ...up to this many messages
+    media_domains: tuple = ()        # sites she may take links from, e.g. MEDIA_DOMAINS=site1.com,site2.com; empty turns links off
     first_meeting_note: bool = True  # False only in the bench, for scenarios that aren't about meeting for the first time
     reply_reasoning: bool = True    # REPLY_REASONING=off asks the reply model not to think first (faster, cheaper; test with the bench)
     outreach_speedup: float = 1.0   # testing only: OUTREACH_SPEEDUP=12 makes her waits and silences count 12x faster (1 = real time)
@@ -94,6 +95,7 @@ def load_config(env=None) -> Config:
         brave_api_key=_first(env, "BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"),
         heated_model=_first(env, "HEATED_MODEL"),
         embed_model=_first(env, "EMBED_MODEL"),
+        media_domains=tuple(d.strip().lower().removeprefix("www.") for d in _first(env, "MEDIA_DOMAINS").split(",") if d.strip()),
         reply_reasoning=_first(env, "REPLY_REASONING").lower() not in ("off", "false", "0", "no"),
         outreach_speedup=_speedup(_first(env, "OUTREACH_SPEEDUP")),
         outreach=_first(env, "OUTREACH").lower() not in ("off", "false", "0", "no"),

@@ -64,6 +64,27 @@ To give it its own model, set `HEATED_MODEL=<openrouter id>` in `.env`; empty me
     .venv/bin/python -m bench.models deepseek minimax      # or search by name
     .venv/bin/python -m bench --models deepseek/deepseek-v4.1-flash,minimax/minimax-m2-her --scenarios heated --serve   # real ids, comma-separated, no spaces
 
+## Links she can share
+
+In explicit moments she can bring in a link, either something she knows he likes or something she likes herself and wants his
+take on. It can arrive inside a reply or in a `want` text she sends first. Only real links are ever used: she is handed one
+that was actually found, and a reply containing any other link is rewritten or stripped.
+
+Set the sites she may use in `.env` (bare domains, comma-separated, no `https://`, no paths; subdomains match). Empty means off:
+
+    MEDIA_DOMAINS=site1.com,site2.com
+
+It also needs `BRAVE_API_KEY`. She only goes looking once she knows a taste (his from memories and profile, hers from her own
+explicit reading and views). Results are searched as `site:<domain> <query>`, then filtered: anything pointing at minors, animals,
+non-consent or real named people is dropped, as is anything off your list. The filter is best-effort wording checks plus your
+allowlist, so choose the sites yourself; nothing here can vouch for what a site hosts.
+
+She offers a link only with real arousal and closeness, at most 3 a day, at least 15 minutes apart.
+
+    .venv/bin/python -m astrid media           # links she's holding
+    .venv/bin/python -m astrid media gather    # go looking now
+    .venv/bin/python -m astrid media clear     # forget them all
+
 ## Her own reading
 
 After a heated chat ends (10 minutes quiet), she goes off to read about it the way a person might: a technique, a way of pacing or

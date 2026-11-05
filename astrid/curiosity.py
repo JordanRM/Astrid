@@ -189,6 +189,7 @@ class Wanderer:
         self.rng = rng or random.Random()
         self.tz = ZoneInfo(cfg.timezone)
         self.fetch = fetch or search_mod.fetch
+        self.scout = None   # finds links she may share; set by the app when sites are allowed
         self._stop = False
 
     def stop(self):
@@ -293,6 +294,14 @@ class Wanderer:
         log.info("wandered (%s) in %.0fs: %r -> %r", kind, time.monotonic() - started, question, thought[:120])
         return row
 
+    async def _after(self, row: dict | None) -> None:
+        """When what she read was about sex, she may also go looking for something to share."""
+        if row and row.get("explicit") and self.scout is not None:
+            try:
+                await self.scout.gather()
+            except Exception as e:
+                log.warning("looking for links skipped: %s", e)
+
     async def _busy(self) -> bool:
         last = await self.db.last_message_at()
         return last is not None and self.now() - last < 15 * 60
@@ -326,7 +335,7 @@ class Wanderer:
                 if await self._heat_pending():
                     await self.db.set_setting("wander_heat_seen", str(await self.db.last_message_at()))
                     log.info("a heated chat just ended; she goes off to read about it")
-                    await self.wander(force="heat")
+                    await self._after(await self.wander(force="heat"))
                     continue
             except asyncio.CancelledError:
                 raise
@@ -338,7 +347,7 @@ class Wanderer:
                 nxt = self.now() + 20 * 60
                 continue
             try:
-                await self.wander(overnight=kind == "overnight")
+                await self._after(await self.wander(overnight=kind == "overnight"))
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # never crash the bot over a reading session

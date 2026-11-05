@@ -282,6 +282,30 @@ class Database:
         )
         return rows
 
+    # ---- shareable links ----
+    async def add_media(self, m: dict) -> int | None:
+        rows = await self.fetch(
+            "insert into astrid.media_links (url, title, domain, snippet, owner, why, query) values (%s, %s, %s, %s, %s, %s, %s) "
+            "on conflict (url) do nothing returning id",
+            (m["url"], m.get("title"), m.get("domain"), m.get("snippet"), m.get("owner", "both"), m.get("why"), m.get("query")))
+        return rows[0]["id"] if rows else None
+
+    async def list_media(self, limit: int = 40, unshared_only: bool = False) -> list[dict]:
+        return await self.fetch(
+            "select id, extract(epoch from created_at)::float8 as created_at, url, title, domain, snippet, owner, why, query, "
+            "extract(epoch from shared_at)::float8 as shared_at, times_shared from astrid.media_links "
+            + ("where times_shared = 0 " if unshared_only else "") + "order by id desc limit %s", (limit,))
+
+    async def mark_media_shared(self, media_id: int) -> None:
+        await self.execute("update astrid.media_links set times_shared = times_shared + 1, shared_at = now() where id = %s", (media_id,))
+
+    async def media_shared_since(self, ts: float) -> int:
+        rows = await self.fetch("select count(*) as n from astrid.media_links where shared_at >= to_timestamp(%s)", (ts,))
+        return int(rows[0]["n"])
+
+    async def clear_media(self) -> None:
+        await self.execute("truncate astrid.media_links restart identity")
+
     # ---- memories ----
     _MEM_COLS = ("id, extract(epoch from created_at)::float8 as created_at, kind, text, gist, importance, emotion, valence, "
                  "explicit, strength, permanent, recalled_count, extract(epoch from last_recalled_at)::float8 as last_recalled_at, "
@@ -366,7 +390,7 @@ class Database:
     # ---- reset ----
     async def reset_all(self, now: float) -> None:
         """Forget the conversation and put her back to a first-meeting state. Keeps settings."""
-        await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions, astrid.thoughts, astrid.memories, astrid.profile_facts restart identity")
+        await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions, astrid.thoughts, astrid.memories, astrid.profile_facts, astrid.media_links restart identity")
         fresh = State(dict(BASELINE), "neutral", None, None, now)
         await self.save_state(fresh, now, "reset", {}, "fresh start")
-        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen', 'rolling_summary', 'episode_through', 'consolidated_on', 'outreach_tide', 'outreach_log', 'last_outreach', 'bond_plan')")
+        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen', 'rolling_summary', 'episode_through', 'consolidated_on', 'outreach_tide', 'outreach_log', 'last_outreach', 'bond_plan', 'media_last')")

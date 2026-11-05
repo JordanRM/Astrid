@@ -9,6 +9,7 @@ import time
 
 from .config import ConfigError, load_config
 from .curiosity import Wanderer, format_thoughts
+from .media import Scout
 from .search import Brave, SearchError
 from .db import Database
 from .embed import make_embedder
@@ -29,6 +30,7 @@ USAGE = """usage: python -m astrid [command]
   opinions list the views she has formed, with reasons and changes of mind
   state    show her mood and numbers; set them for testing:  state preset heated  |  state set arousal=8 trust=7
   thoughts list what she's read and thought about on her own time
+  media    links she may share in explicit moments: media | media gather | media clear (needs MEDIA_DOMAINS in .env)
   wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire, heat)
   memories list what she remembers, strongest first; or search by meaning:  memories "his brother"
   profile  show what she knows about you; change it:  profile set job="..."  |  profile remove job
@@ -86,6 +88,9 @@ async def _run(cfg) -> None:
         await send_texts(tg, chat_id, text)
     outreach = Outreach(cfg, db, engine, send, memory)
     wanderer = Wanderer(cfg, db, llm, Brave(cfg.brave_api_key)) if cfg.brave_api_key else None
+    if wanderer is not None and cfg.media_domains:
+        wanderer.scout = Scout(cfg, db, llm, Brave(cfg.brave_api_key), memory)
+        logging.getLogger("astrid").info("links in explicit chat: on, from %s", ", ".join(cfg.media_domains))
     if wanderer is None:
         logging.getLogger("astrid").info("no BRAVE_API_KEY: her own reading is off")
     loop = asyncio.get_running_loop()
@@ -204,6 +209,26 @@ def main() -> int:
             await db.close()
             from zoneinfo import ZoneInfo
             print(format_thoughts(rows, ZoneInfo(cfg.timezone)))
+        asyncio.run(go())
+        return 0
+    if cmd == "media":
+        sub = sys.argv[2] if len(sys.argv) > 2 else "list"
+        async def go():
+            db = Database(cfg.database_url)
+            await db.migrate()
+            if not cfg.media_domains:
+                print("no sites allowed yet: set MEDIA_DOMAINS in .env (comma-separated, e.g. MEDIA_DOMAINS=site1.com,site2.com)")
+            if sub == "clear":
+                await db.clear_media()
+                print("cleared")
+            elif sub == "gather":
+                llm = OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url)
+                memory = Memory(cfg, db, llm, make_embedder(cfg.embed_model))
+                got = await Scout(cfg, db, llm, Brave(cfg.brave_api_key), memory).gather()
+                print(f"kept {len(got)} link(s)" if got else "nothing kept (she may not know what she likes yet, or nothing passed the filter; see the log lines above)")
+            for r in await db.list_media(40):
+                print(f"#{r['id']} [{r['owner']}] {'shared ' + str(r['times_shared']) + 'x' if r['times_shared'] else 'not shared'} {r['title'] or ''}\n    {r['url']}\n    why: {r['why'] or ''}")
+            await db.close()
         asyncio.run(go())
         return 0
     if cmd == "wonder":

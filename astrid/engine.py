@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from . import appraisal, critic, curiosity, examples, heated, opinions, persona, texting
 from .config import Config
 from .llm import LLMError
-from . import bond
+from . import bond, media
 from .state import apply_deltas, decayed, length_guidance, render
 
 log = logging.getLogger("astrid.engine")
@@ -88,6 +88,8 @@ class Astrid:
             talked_today = any(datetime.fromtimestamp(m.ts, self.tz).date() == local.date() for m in history[:-1])
             fresh = 0 if talked_today else (1 if len(history) > 1 else (2 if getattr(self.cfg, "first_meeting_note", True) else 1))
             has_inner = True
+            offer = await self._media_offer(state, now, heat)
+            offered = {offer["url"]} if offer else set()
             profile_text, memory_text, summary_text = await self._remember(state, user_lines[-3:] + assistant_lines[-1:], heat, now, local)
             if heat:
                 # Not walled off: views she holds and her own reading about sex and desire can still come through.
@@ -107,7 +109,7 @@ class Astrid:
                 }.get(fresh)
                 reminder = heated.build_reminder(heated.hints(assistant_lines, user_lines), heated.texts_guidance(self.rng))
                 context = persona.build_context(
-                    render(state, local), "\n".join(x for x in (gap_note, opener) if x) or None, examples.render(heated.choose(self.rng)),
+                    render(state, local), "\n".join(x for x in (gap_note, opener, media.offer_note(offer) if offer else None) if x) or None, examples.render(heated.choose(self.rng)),
                     opinions.render(known), "\n\n".join(x for x in (curiosity.render(in_mind, now), curiosity.render_ideas(ideas)) if x) or None,
                     memory_text, summary_text, reminder)
                 static = persona.build_static(heated.RULES, profile_text)
@@ -146,11 +148,13 @@ class Astrid:
             )
 
             prepared = time.monotonic()
-            reply, calls = await self._generate(messages, heat, fresh, lambda r: (critic.claimed_reading(r) if not (heat or has_inner) else []) + critic.time_slips(r, local.hour))
-            reply = texting.normalize(reply) or reply
+            reply, calls = await self._generate(messages, heat, fresh, lambda r: (critic.claimed_reading(r) if not (heat or has_inner) else []) + critic.time_slips(r, local.hour) + media.bad_links(r, offered))
+            reply = texting.normalize(media.strip_bad_links(reply, offered)) or reply
+            await self._media_done(offer, reply, now)
             generated = time.monotonic()
             self.trace[chat_id] = {"kind": "reply", "mode": "heated" if heat else "everyday", "model": self._last_gen.get("model"),
-                                   "rewritten": self._last_gen.get("problems") or [], "profile": profile_text, "note": context}
+                                   "rewritten": self._last_gen.get("problems") or [], "profile": profile_text, "note": context,
+                                   "link": offer["url"] if offer else None}
             await self.db.add_message(chat_id, "assistant", reply, self.now())
             log.info(
                 "reply ready in %.1fs (database %.1fs, model %.1fs, %d model call%s)%s",
@@ -158,6 +162,28 @@ class Astrid:
                 f" [heated: {self.cfg.heated_model or self.cfg.interactor_model}]" if heat else "",
             )
             return reply
+
+    async def _media_offer(self, state, now: float, heat: bool, boost: float = 1.0) -> dict | None:
+        """A link she's found that she may bring into this moment, or None. Only in explicit moments, with real arousal and some closeness,
+        spaced out, and a few a day at most."""
+        if not heat or not getattr(self.cfg, "media_domains", ()):
+            return None
+        if self.rng.random() >= media.offer_chance(state, boost):
+            return None
+        last = await self.db.get_setting("media_last")
+        if last and now - float(last) < media.SPACING_MIN * 60:
+            return None
+        local = datetime.fromtimestamp(now, self.tz)
+        if await self.db.media_shared_since(local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()) >= media.DAILY_CAP:
+            return None
+        rows = [r for r in await self.db.list_media(40, unshared_only=True) if now - float(r["created_at"]) < 14 * 86400]
+        return self.rng.choice(rows) if rows else None
+
+    async def _media_done(self, offer: dict | None, reply: str, now: float) -> None:
+        if offer and offer["url"].rstrip("/") in {u.rstrip("/") for u in media.links_in(reply)}:
+            await self.db.mark_media_shared(offer["id"])
+            await self.db.set_setting("media_last", str(now))
+            log.info("shared a link: %s", offer["url"])
 
     async def _told(self, now: float) -> set:
         """Thoughts she already shared in a text she sent first, recently."""
@@ -192,6 +218,8 @@ class Astrid:
             local = datetime.fromtimestamp(now, self.tz)
             talked_today = any(datetime.fromtimestamp(m.ts, self.tz).date() == local.date() for m in history)
             fresh = 0 if talked_today else (1 if history else 2)
+            offer = await self._media_offer(state, now, heat, 1.5)
+            offered = {offer["url"]} if offer else set()
             profile_text, memory_text, summary_text = await self._remember(state, cues or [note], heat, now, local)
             known = opinions.relevant(await self.db.list_opinions(60), (cues or [note]) + user_lines[-2:])
             hints = heated.hints(assistant_lines, user_lines) if heat else critic.reply_hints(assistant_lines)
@@ -200,6 +228,7 @@ class Astrid:
                 "Write it as you normally text: one short text, or two only if there's a real second thought. Don't announce that you're "
                 "messaging first, no 'just checking in', no greeting ritual, nothing that makes him owe you a reply. At most one question."
                 + "".join(f"\nAlso: {h}" for h in hints)
+                + (("\n" + media.offer_note(offer)) if offer else "")
             )
             if heat:
                 examples_text = examples.render(heated.choose(self.rng))
@@ -211,8 +240,8 @@ class Astrid:
                                             summary_text, instruction)
             messages = [{"role": "system", "content": static}] + [{"role": m.role, "content": m.content} for m in history] + [
                 {"role": "system", "content": context}]
-            reply, calls = await self._generate(messages, heat, fresh, lambda r: critic.time_slips(r, local.hour))
-            reply = texting.normalize(reply) or reply
+            reply, calls = await self._generate(messages, heat, fresh, lambda r: critic.time_slips(r, local.hour) + media.bad_links(r, offered))
+            reply = texting.normalize(media.strip_bad_links(reply, offered)) or reply
             if (heat and heated.slips(reply, fresh)) or critic.hard_violations(reply):
                 reply = critic.strip_asterisk_actions(reply)
                 if not reply or critic.hard_violations(reply) or (heat and heated.slips(reply, fresh)):
@@ -221,6 +250,7 @@ class Astrid:
             self.trace[chat_id] = {"kind": "outreach", "mode": "heated" if heat else "everyday", "model": self._last_gen.get("model"),
                                    "rewritten": self._last_gen.get("problems") or [], "profile": profile_text, "note": context}
             await self.db.add_message(chat_id, "assistant", reply, self.now())
+            await self._media_done(offer, reply, now)
             log.info("outreach written (%d model call%s)%s", calls, "" if calls == 1 else "s", " [heated]" if heat else "")
             return reply
 
