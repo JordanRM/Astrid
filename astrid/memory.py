@@ -348,20 +348,30 @@ class Memory:
             self._rebuild()
             return mid
 
-    async def _ask(self, system: str, user: str, max_tokens: int = 3000) -> dict | None:
-        """One JSON answer from the thinking model (it may spend tokens thinking, so retry once with more room)."""
-        msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-        for attempt in (1, 2):
-            try:
-                raw = await self.llm.chat(self.cfg.thinking_model, msgs, max_tokens=max_tokens * attempt, temperature=0.4, timeout=120)
-            except LLMError as e:
-                if attempt == 2 or not str(e).startswith("empty"):
-                    raise
-                continue
-            data = _extract_json(raw)
-            if data is not None:
-                return data
-            msgs = msgs[:2] + [{"role": "user", "content": "Reply with ONLY the JSON object, complete."}]
+    async def _ask(self, system: str, user: str, max_tokens: int = 3000, fast: bool = False) -> dict | None:
+        """One JSON answer. `fast` is for plain writing (summaries), which doesn't need the slow reasoning model. A model that
+        runs out of tokens while thinking gets one more try with double the room, then the other model gets a go."""
+        first, second = (self.cfg.interactor_model, self.cfg.thinking_model) if fast else (self.cfg.thinking_model, self.cfg.interactor_model)
+        last: Exception | None = None
+        for model in dict.fromkeys((first, second)):
+            msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+            for attempt in (1, 2):
+                try:
+                    raw = await self.llm.chat(model, msgs, max_tokens=max_tokens * attempt, temperature=0.4, timeout=120)
+                except LLMError as e:
+                    if not str(e).startswith("empty"):
+                        raise
+                    last = e
+                    continue
+                data = _extract_json(raw)
+                if data is not None:
+                    return data
+                msgs = msgs[:2] + [{"role": "user", "content": "Reply with ONLY the JSON object, complete."}]
+                break
+            else:
+                log.info("memory: %s gave nothing usable, trying the other model", model)
+        if last is not None:
+            raise last
         return None
 
     async def _related(self, text: str, k: int = 5) -> list[dict]:
@@ -469,7 +479,7 @@ class Memory:
             return False
         convo = "\n".join(f"{'Jordan' if m['role'] == 'user' else 'Astrid'}: {m['content']}" for m in msgs)[-9000:]
         start = datetime.fromtimestamp(msgs[0]["ts"], self.tz)
-        data = await self._ask(EPISODE, f"This conversation started {start.strftime('%A %-I:%M %p')}.\n\n{convo}")
+        data = await self._ask(EPISODE, f"This conversation started {start.strftime('%A %-I:%M %p')}.\n\n{convo}", fast=True)
         text = clean((data or {}).get("summary"), 600)
         if not text:
             return False
@@ -493,7 +503,7 @@ class Memory:
         if len(msgs) < 8:
             return False
         convo = "\n".join(f"{'Jordan' if m['role'] == 'user' else 'Astrid'}: {m['content']}" for m in msgs)[-9000:]
-        data = await self._ask(ROLLING, (f"Summary so far:\n{s['text']}\n\n" if s else "") + f"New messages to fold in:\n{convo}")
+        data = await self._ask(ROLLING, (f"Summary so far:\n{s['text']}\n\n" if s else "") + f"New messages to fold in:\n{convo}", fast=True)
         text = clean((data or {}).get("summary"), 900)
         if not text:
             return False
@@ -532,7 +542,7 @@ class Memory:
         for members in clusters:
             try:
                 listing = "\n".join(f"- ({when_text(m['created_at'], now, self.tz)}) {m['text']}" for m in members)
-                data = await self._ask(MERGE, listing)
+                data = await self._ask(MERGE, listing, fast=True)
                 text = clean((data or {}).get("text"), 500)
                 if not text:
                     continue

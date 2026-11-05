@@ -374,7 +374,7 @@ def test_a_quiet_hour_becomes_one_episode_memory(db_url):
         c, db, llm, mem = mk(db_url)
         await db.migrate()
         await msgs(db, NOW - 7200, 10)
-        llm.script("r1", json.dumps({"summary": "we went over his wedding speech for a while and he sounded nervous", "gist": "something about his speech",
+        llm.script("euryale", json.dumps({"summary": "we went over his wedding speech for a while and he sounded nervous", "gist": "something about his speech",
                                      "importance": 4, "emotion": "close", "valence": 0.4, "explicit": False}))
         early = await mem.close_episode(1, NOW - 7200 + 700)                                  # only 2 min of quiet
         done = await mem.close_episode(1, NOW)
@@ -396,7 +396,7 @@ def test_todays_older_messages_roll_into_a_summary_that_expires_with_the_day(db_
         await db.migrate()
         await msgs(db, noon - 6 * 3600, 12)                                                    # 9am-ish, well outside the 2h window
         await db.add_message(1, "user", "just now", noon - 60)
-        llm.script("r1", json.dumps({"summary": "this morning we went back and forth about his wedding speech"}))
+        llm.script("euryale", json.dumps({"summary": "this morning we went back and forth about his wedding speech"}))
         ok = await mem.roll_summary(1, noon)
         again = await mem.roll_summary(1, noon)                                                # nothing new to fold in
         today = await mem.summary_text(datetime.fromtimestamp(noon, tz).date())
@@ -421,7 +421,7 @@ def test_overnight_merges_small_related_memories_fades_the_weak_and_keeps_strong
         # force them close together so they cluster under the simple embedder
         llm.script("r1", extraction(item("an old passing remark about nothing much", 2, "moment")))
         await mem.extract([("a", "b")], [], NOW - 900 * DAY)
-        llm.script("r1", json.dumps({"text": "he kept griping about the garage compressor tripping the breaker", "gist": "something about the garage",
+        llm.script("euryale", json.dumps({"text": "he kept griping about the garage compressor tripping the breaker", "gist": "something about the garage",
                                      "importance": 3, "emotion": "irritated", "valence": -0.3}))
         report = await mem.consolidate(NOW)
         rows = await db.load_memories(include_inactive=True)
@@ -805,3 +805,23 @@ def test_running_out_of_tokens_while_thinking_is_not_retried_blindly():
     finally:
         llm_mod.session = real
     assert len(posts) == 1 and err.startswith("empty completion (ran out")             # one call, not three
+
+
+def test_summaries_use_the_fast_model_and_a_model_that_runs_dry_hands_over_to_the_other(db_url):
+    from astrid.llm import LLMError
+    async def go():
+        c, db, llm, mem = mk(db_url)
+        await db.migrate()
+        dry = LLMError("empty completion (ran out of tokens while thinking)")
+        llm.script("r1", dry, dry)                                        # the thinking model can't finish, even with double the room
+        llm.script("euryale", extraction(item("he drives a blue truck", 4)))
+        out = await mem.extract([("i drive a blue truck", "nice")], [], NOW)
+        order = [x["model"] for x in llm.calls]
+        llm.calls.clear()
+        llm.script("euryale", json.dumps({"summary": "a summary"}))
+        data = await mem._ask("s", "u", fast=True)
+        await db.close()
+        return out, order, data, [x["model"] for x in llm.calls], [x["max_tokens"] for x in llm.calls]
+    out, order, data, fast_calls, tokens = run(go())
+    assert out["saved"] == 1 and order == ["r1", "r1", "euryale"]          # two tries on the thinking model, then the other one
+    assert data == {"summary": "a summary"} and fast_calls == ["euryale"] and tokens == [3000]
