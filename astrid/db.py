@@ -218,6 +218,14 @@ class Database:
         )
         return [r["content"] for r in rows]
 
+    async def last_user_message_at(self) -> float | None:
+        row = await self.fetchrow("select extract(epoch from max(created_at))::float8 as at from astrid.messages where role = 'user'")
+        return row["at"] if row else None
+
+    async def user_message_count(self, since_ts: float) -> int:
+        row = await self.fetchrow("select count(*) as n from astrid.messages where role = 'user' and created_at >= to_timestamp(%s)", (since_ts,))
+        return int(row["n"])
+
     async def last_message_at(self) -> float | None:
         row = await self.fetchrow("select extract(epoch from max(created_at))::float8 as at from astrid.messages")
         return row["at"] if row else None
@@ -274,7 +282,7 @@ class Database:
     # ---- memories ----
     _MEM_COLS = ("id, extract(epoch from created_at)::float8 as created_at, kind, text, gist, importance, emotion, valence, "
                  "explicit, strength, permanent, recalled_count, extract(epoch from last_recalled_at)::float8 as last_recalled_at, "
-                 "embedding, embed_model, links, status, resolved")
+                 "embedding, embed_model, links, status, resolved, followed_up")
 
     async def load_memories(self, include_inactive: bool = False) -> list[dict]:
         where = "" if include_inactive else "where status = 'active'"
@@ -291,7 +299,7 @@ class Database:
         return row["id"]
 
     _MEM_SETTABLE = {"text", "gist", "importance", "emotion", "valence", "explicit", "strength", "permanent", "recalled_count",
-                     "status", "resolved", "embedding", "embed_model", "links", "last_recalled_at"}
+                     "status", "resolved", "followed_up", "embedding", "embed_model", "links", "last_recalled_at"}
 
     async def update_memory(self, memory_id: int, fields: dict) -> None:
         sets, params = [], []
@@ -358,4 +366,4 @@ class Database:
         await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions, astrid.thoughts, astrid.memories, astrid.profile_facts restart identity")
         fresh = State(dict(BASELINE), "neutral", None, None, now)
         await self.save_state(fresh, now, "reset", {}, "fresh start")
-        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen', 'rolling_summary', 'episode_through', 'consolidated_on')")
+        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen', 'rolling_summary', 'episode_through', 'consolidated_on', 'outreach_tide', 'outreach_log', 'last_outreach')")

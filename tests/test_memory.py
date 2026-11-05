@@ -669,4 +669,4 @@ def test_the_very_first_message_ever_cant_pretend_to_a_shared_history(db_url):
         return first, notes, second, len([x for x in llm.calls])
     first, notes, second, calls = run(go())
     assert first == "hey. who's this, then" and calls == 3                                   # rewritten once on the first message
-    assert "very first time you and Jordan have ever talked" in notes and "very first time" not in second
+    assert "first time you and Jordan have ever talked" in notes and "first time you and Jordan have ever talked" not in second

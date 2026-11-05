@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import time
@@ -49,13 +50,13 @@ class Astrid:
         keep = [m for m in rows if m.ts >= now - self.cfg.history_minutes * 60]
         return keep if len(keep) >= self.cfg.history_limit else rows[-self.cfg.history_limit:]
 
-    async def _remember(self, state, user_lines, assistant_lines, heat: bool, now: float, local):
+    async def _remember(self, state, cues: list[str], heat: bool, now: float, local):
         """(profile block, memories that came to mind, summary of earlier today). Memory trouble never stops a reply."""
         if self.memory is None:
             return None, None, None
         try:
             facts = await self.memory.profile_facts()
-            recalled = await self.memory.recall(user_lines[-3:] + assistant_lines[-1:], state, heat, now)
+            recalled = await self.memory.recall(cues, state, heat, now)
             return (persona.profile_block(facts) if facts else None, self.memory.render(recalled, now),
                     await self.memory.summary_text(local.date()))
         except Exception as e:
@@ -75,6 +76,7 @@ class Astrid:
             if len(history) >= 2 and now - history[-2].ts > 30 * 60:
                 gap_note = f"Jordan's previous message before this one was {_ago(now - history[-2].ts)} ago."
 
+            gap_note = await self._outreach_note(history, gap_note)
             assistant_lines = [m.content for m in history if m.role == "assistant"]
             user_lines = [m.content for m in history if m.role == "user"]
             local = datetime.fromtimestamp(now, self.tz)
@@ -82,7 +84,7 @@ class Astrid:
             # 0: mid-conversation. 1: nothing said yet today. 2: nothing ever said (so no earlier scenes can be claimed either).
             talked_today = any(datetime.fromtimestamp(m.ts, self.tz).date() == local.date() for m in history[:-1])
             fresh = 0 if talked_today else (1 if len(history) > 1 else 2)
-            profile_text, memory_text, summary_text = await self._remember(state, user_lines, assistant_lines, heat, now, local)
+            profile_text, memory_text, summary_text = await self._remember(state, user_lines[-3:] + assistant_lines[-1:], heat, now, local)
             if heat:
                 # Not walled off: views she holds and her own reading about sex and desire can still come through.
                 # Everyday trivia stays out so it can't pull her out of the scene.
@@ -117,9 +119,10 @@ class Astrid:
                     await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
                 has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)
                 reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
-                first_note = ("This is the very first time you and Jordan have ever talked. You don't know him yet beyond what's in your notes, "
-                              "and you have no shared history: no earlier chats, nothing he's told you, no 'again' or 'back'. Meet him as someone "
-                              "new that you're curious about." if fresh == 2 else None)
+                first_note = ("This is the first time you and Jordan have ever talked. You both know what this is: you're an AI and he chose to "
+                              "talk to you. You know nothing about him beyond your notes and have no shared history: no earlier chats, nothing he's "
+                              "told you, no 'again' or 'back'. Don't interview him. Respond to what he brings up, and let any question come from "
+                              "something he actually said." if fresh == 2 else None)
                 context = persona.build_context(
                     render(state, local), "\n".join(x for x in (gap_note, first_note) if x) or None,
                     examples.render(examples.choose(state, local, self.rng, extra={"inner_life" if has_inner else "no_inner_life"})),
@@ -141,6 +144,61 @@ class Astrid:
                 time.monotonic() - started, prepared - started, generated - prepared, calls, "" if calls == 1 else "s",
                 f" [heated: {self.cfg.heated_model or self.cfg.interactor_model}]" if heat else "",
             )
+            return reply
+
+    async def _outreach_note(self, history, gap_note: str | None) -> str | None:
+        """If her last message was one she sent unprompted in the middle of the night, he wasn't ignoring her."""
+        try:
+            raw = await self.db.get_setting("last_outreach")
+            lo = json.loads(raw) if raw else None
+        except Exception:
+            return gap_note
+        if lo and lo.get("quiet") and len(history) >= 2 and history[-2].role == "assistant" and abs(history[-2].ts - float(lo["at"])) < 10:
+            at = datetime.fromtimestamp(float(lo["at"]), self.tz).strftime("%-I:%M %p")
+            note = (f"You texted him first at {at}, in the middle of the night. He was asleep or busy, not ignoring you, and you "
+                    "didn't expect an answer then. Don't mention the hour as a grievance.")
+            return "\n".join(x for x in (gap_note, note) if x)
+        return gap_note
+
+    async def reach_out(self, chat_id: int, note: str, heat: bool = False, cues: list[str] | None = None) -> str | None:
+        """Write a text she sends first, unprompted. Returns what was stored (to be sent), or None if it didn't come out right."""
+        async with self._lock_for(chat_id):
+            now = self.now()
+            state = decayed(await self.db.get_state(), now)
+            history = await self._window(chat_id, now)
+            assistant_lines = [m.content for m in history if m.role == "assistant"]
+            user_lines = [m.content for m in history if m.role == "user"]
+            local = datetime.fromtimestamp(now, self.tz)
+            talked_today = any(datetime.fromtimestamp(m.ts, self.tz).date() == local.date() for m in history)
+            fresh = 0 if talked_today else (1 if history else 2)
+            profile_text, memory_text, summary_text = await self._remember(state, cues or [note], heat, now, local)
+            known = opinions.relevant(await self.db.list_opinions(60), (cues or [note]) + user_lines[-2:])
+            hints = heated.hints(assistant_lines, user_lines) if heat else critic.reply_hints(assistant_lines)
+            instruction = (
+                "You're texting Jordan first, unprompted. Nothing he said just now led to this.\n" + note + "\n"
+                "Write it as you normally text: one short text, or two only if there's a real second thought. Don't announce that you're "
+                "messaging first, no 'just checking in', no greeting ritual, nothing that makes him owe you a reply. At most one question."
+                + "".join(f"\nAlso: {h}" for h in hints)
+            )
+            if heat:
+                examples_text = examples.render(heated.choose(self.rng))
+                static = persona.build_static(heated.RULES, profile_text)
+            else:
+                examples_text = examples.render(examples.choose(state, local, self.rng))
+                static = persona.build_static(None, profile_text)
+            context = persona.build_context(render(state, local), None, examples_text, opinions.render(known), None, memory_text,
+                                            summary_text, instruction)
+            messages = [{"role": "system", "content": static}] + [{"role": m.role, "content": m.content} for m in history] + [
+                {"role": "system", "content": context}]
+            reply, calls = await self._generate(messages, heat, fresh)
+            reply = texting.normalize(reply) or reply
+            if (heat and heated.slips(reply, fresh)) or critic.hard_violations(reply):
+                reply = critic.strip_asterisk_actions(reply)
+                if not reply or critic.hard_violations(reply) or (heat and heated.slips(reply, fresh)):
+                    log.info("outreach: draft didn't pass the checks; not sending")
+                    return None
+            await self.db.add_message(chat_id, "assistant", reply, self.now())
+            log.info("outreach written (%d model call%s)%s", calls, "" if calls == 1 else "s", " [heated]" if heat else "")
             return reply
 
     async def _chat(self, model: str, messages: list[dict], kwargs: dict) -> str:

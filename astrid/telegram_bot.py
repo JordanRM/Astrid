@@ -71,6 +71,15 @@ class Telegram:
             pass
 
 
+async def send_texts(tg, chat_id: int, reply: str) -> None:
+    """Send her reply as separate texts, a beat apart, the way a person would."""
+    for i, part in enumerate(split_texts(reply)):
+        if i:
+            asyncio.ensure_future(tg.typing(chat_id))
+            await asyncio.sleep(min(1.8, 0.5 + 0.02 * len(part)))
+        await tg.send_message(chat_id, part)
+
+
 class Bot:
     def __init__(self, cfg, db, engine, tg: Telegram):
         self.cfg = cfg
@@ -165,11 +174,7 @@ class Bot:
             typing.cancel()
         sending = time.time()
         try:
-            for i, part in enumerate(split_texts(reply)):
-                if i:   # a second text arrives a beat later, like a person typing it
-                    asyncio.ensure_future(self.tg.typing(chat_id))
-                    await asyncio.sleep(min(1.8, 0.5 + 0.02 * len(part)))
-                await self.tg.send_message(chat_id, part)
+            await send_texts(self.tg, chat_id, reply)
         except TelegramError as e:
             log.error("could not send reply: %s", e)
             return

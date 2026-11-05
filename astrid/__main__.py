@@ -18,7 +18,8 @@ from .llm import LLMError, OpenRouter
 from .net import force_ipv4
 from .opinions import format_opinions
 from .state import FIELDS, PRESETS, decayed, parse_assignments
-from .telegram_bot import Bot, Telegram, TelegramError
+from .outreach import Outreach, Plan, quiet_window
+from .telegram_bot import Bot, Telegram, TelegramError, send_texts
 
 USAGE = """usage: python -m astrid [command]
   (none)   run the bot
@@ -31,6 +32,7 @@ USAGE = """usage: python -m astrid [command]
   memories list what she remembers, strongest first; or search by meaning:  memories "his brother"
   profile  show what she knows about you; change it:  profile set job="..."  |  profile remove job
   consolidate  run the overnight tidy now (fade weak memories, merge small ones, tidy the profile)
+  outreach show whether she'd text first right now; force one:  outreach now follow_up|share|miss|want
   flags    list replies you flagged with /meh in Telegram
   reset    forget the conversation and put her back to a first meeting (add --yes)"""
 
@@ -77,7 +79,11 @@ async def _run(cfg) -> None:
     memory = Memory(cfg, db, llm, make_embedder(cfg.embed_model))
     engine = Astrid(cfg, db, llm, memory=memory)
     keeper = MemoryKeeper(cfg, db, memory)
-    bot = Bot(cfg, db, engine, Telegram(cfg.telegram_token, cfg.telegram_api_base))
+    tg = Telegram(cfg.telegram_token, cfg.telegram_api_base)
+    bot = Bot(cfg, db, engine, tg)
+    async def send(chat_id, text):
+        await send_texts(tg, chat_id, text)
+    outreach = Outreach(cfg, db, engine, send, memory)
     wanderer = Wanderer(cfg, db, llm, Brave(cfg.brave_api_key)) if cfg.brave_api_key else None
     if wanderer is None:
         logging.getLogger("astrid").info("no BRAVE_API_KEY: her own reading is off")
@@ -86,17 +92,20 @@ async def _run(cfg) -> None:
     def stop():
         bot.stop()
         keeper.stop()
+        outreach.stop()
         if wanderer:
             wanderer.stop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop)
     wandering = asyncio.create_task(wanderer.loop()) if wanderer else None
     upkeep = asyncio.create_task(keeper.loop())
+    reaching = asyncio.create_task(outreach.loop())
     warming = asyncio.create_task(memory.warm())
     try:
         await bot.run()
     finally:
         upkeep.cancel()
+        reaching.cancel()
         warming.cancel()
         if wandering:
             wandering.cancel()
@@ -245,6 +254,36 @@ def main() -> int:
                     tag = "permanent" if m["permanent"] else ("hazy" if is_hazy(m, now) else f"{eff:.2f}")
                     print(f"#{m['id']} [{m['kind']}{' explicit' if m['explicit'] else ''}] imp {m['importance']:.0f} {tag} "
                           f"{when_text(m['created_at'], now, mem.tz)}" + (f" sim {score:.2f}" if q else "") + f": {m['text']}")
+            await db.close()
+        asyncio.run(go())
+        return 0
+    if cmd == "outreach":
+        async def go():
+            db = Database(cfg.database_url)
+            await db.migrate()
+            llm = OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url)
+            mem = Memory(cfg, db, llm, make_embedder(cfg.embed_model))
+            tg = Telegram(cfg.telegram_token, cfg.telegram_api_base)
+            async def send(chat_id, text):
+                await send_texts(tg, chat_id, text)
+            o = Outreach(cfg, db, Astrid(cfg, db, llm, memory=mem), send, mem)
+            now = time.time()
+            from datetime import datetime
+            local = datetime.fromtimestamp(now, o.tz)
+            if len(sys.argv) > 3 and sys.argv[2] == "now":
+                plans = [p for p in await o.urges(now, decayed(await db.get_state(), now), local, await db.last_user_message_at()) if p.reason == sys.argv[3]]
+                if not plans:
+                    print(f"nothing in her to {sys.argv[3]} about right now (see `outreach` for what she has)")
+                else:
+                    print(await o.reach_out(plans[0]) or "she wrote something that didn't pass the checks, so nothing was sent")
+            else:
+                await o._load_tide()
+                eng = await db.user_message_count(now - 3 * 86400)
+                o.tide.for_day(local.date(), min(1.0, 0.6 * eng / 40 + 0.2))
+                why = await o._gate(now, local, await db.last_user_message_at())
+                print(f"quiet hours now: {quiet_window(local)} | today's tide {o.tide.level:.2f} (cap {o.tide.cap()} texts) | right now: {why or 'free to reach out'}")
+                for p in await o.urges(now, decayed(await db.get_state(), now), local, await db.last_user_message_at()):
+                    print(f"  {p.reason}: urge {p.urge:.2f}")
             await db.close()
         asyncio.run(go())
         return 0

@@ -22,6 +22,7 @@ class Config:
     history_limit: int = 24         # the smallest recent window she always sees
     history_minutes: int = 120      # she sees everything from roughly the last two hours...
     history_max: int = 100          # ...up to this many messages
+    outreach: bool = True           # she may text first; OUTREACH=off turns it off
     embed_model: str = ""           # empty: BAAI/bge-small-en-v1.5; "hash" forces the simple word-matching fallback
     max_reply_tokens: int = 600
     temperature: float = 0.9
@@ -83,4 +84,5 @@ def load_config(env=None) -> Config:
         brave_api_key=_first(env, "BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"),
         heated_model=_first(env, "HEATED_MODEL"),
         embed_model=_first(env, "EMBED_MODEL"),
+        outreach=_first(env, "OUTREACH").lower() not in ("off", "false", "0", "no"),
     )

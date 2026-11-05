@@ -103,6 +103,25 @@ Set `EMBED_MODEL=hash` to force the fallback.
     .venv/bin/python -m astrid profile remove job
     .venv/bin/python -m astrid consolidate              # run the overnight tidy now
 
+## Reaching out first
+
+She can text first. It isn't a timer: every 5 minutes she weighs whether anything is on her mind, and most checks end in nothing.
+
+- **Why she'd text** (never random trivia): a loose end he left open (once, after at least 16 hours); something she read that she has a real
+  reason to tell him; missing him after a quiet stretch (scales with silence and how attached she is); or wanting him (arousal, plus what
+  she read and what happened between them lately). Arousal alone is enough, affection isn't required, but irritation blocks it.
+- **Ebb and flow:** a daily "tide" shaped by how much you've been talking carries over from day to day, so busy stretches and quiet ones
+  come in runs. Some days 0 texts, some days several.
+- **Hours:** roughly 10pm to 7:30am is quiet (later on Friday and Saturday nights and weekend mornings). It's a soft line: she mostly
+  doesn't, but can, and then she knows he's asleep and doesn't expect an answer. On weekday working hours she's less likely, except wanting.
+- **Back-off:** never mid-conversation, never before you've written, spaced apart, and she stops after two unanswered texts (a long wait
+  before a third).
+- She writes it with the same prompt stack as a reply (memories, her state, her habits checks), and a draft that breaks the rules isn't sent.
+
+    .venv/bin/python -m astrid outreach                  # tide, hours, and what she has on her mind
+    .venv/bin/python -m astrid outreach now want         # force one: follow_up, share, miss or want
+    OUTREACH=off in .env                                  # turns it off
+
 ## Tests
 
 `python -m pytest tests` needs a local PostgreSQL (see `tests/conftest.py` for the connection string) and runs the real database code against it, with the model and Telegram APIs mocked.
