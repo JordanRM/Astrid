@@ -348,7 +348,7 @@ class Memory:
             self._rebuild()
             return mid
 
-    async def _ask(self, system: str, user: str, max_tokens: int = 1800) -> dict | None:
+    async def _ask(self, system: str, user: str, max_tokens: int = 3000) -> dict | None:
         """One JSON answer from the thinking model (it may spend tokens thinking, so retry once with more room)."""
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         for attempt in (1, 2):
@@ -493,7 +493,7 @@ class Memory:
         if len(msgs) < 8:
             return False
         convo = "\n".join(f"{'Jordan' if m['role'] == 'user' else 'Astrid'}: {m['content']}" for m in msgs)[-9000:]
-        data = await self._ask(ROLLING, (f"Summary so far:\n{s['text']}\n\n" if s else "") + f"New messages to fold in:\n{convo}", 1200)
+        data = await self._ask(ROLLING, (f"Summary so far:\n{s['text']}\n\n" if s else "") + f"New messages to fold in:\n{convo}")
         text = clean((data or {}).get("summary"), 900)
         if not text:
             return False
@@ -532,7 +532,7 @@ class Memory:
         for members in clusters:
             try:
                 listing = "\n".join(f"- ({when_text(m['created_at'], now, self.tz)}) {m['text']}" for m in members)
-                data = await self._ask(MERGE, listing, 1200)
+                data = await self._ask(MERGE, listing)
                 text = clean((data or {}).get("text"), 500)
                 if not text:
                     continue
@@ -570,7 +570,7 @@ class Memory:
         if total <= MAX_PROFILE_CHARS and len(self._profile) <= 24:
             return False
         listing = "\n".join(f"[{f['key']}] {f['text']}" for f in self._profile)
-        data = await self._ask(TIDY, listing, 1800)
+        data = await self._ask(TIDY, listing)
         facts = (data or {}).get("facts")
         if not isinstance(facts, list) or not facts:
             return False
@@ -611,6 +611,8 @@ class MemoryKeeper:
         self.now = clock
         self.tz = ZoneInfo(cfg.timezone)
         self._stop = False
+        self._fails: dict[str, int] = {}
+        self._wait_until: dict[str, float] = {}
 
     def stop(self) -> None:
         self._stop = True
@@ -623,12 +625,19 @@ class MemoryKeeper:
         for name, job in (("episode", lambda: self.memory.close_episode(chat_id, now)),
                           ("summary", lambda: self.memory.roll_summary(chat_id, now)),
                           ("overnight", lambda: self._overnight(now))):
+            if now < self._wait_until.get(name, 0.0):
+                continue
             try:
                 await job()
+                self._fails.pop(name, None)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                log.warning("memory upkeep (%s) skipped: %s", name, e)
+                # Back off (2, 4, 8... up to 30 minutes) instead of hammering the model every minute.
+                n = self._fails[name] = self._fails.get(name, 0) + 1
+                wait = min(1800, 120 * 2 ** (n - 1))
+                self._wait_until[name] = now + wait
+                log.warning("memory upkeep (%s) skipped: %s; trying again in %d min", name, e, wait // 60)
 
     async def _overnight(self, now: float) -> None:
         local = datetime.fromtimestamp(now, self.tz)

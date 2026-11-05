@@ -44,9 +44,14 @@ class OpenRouter:
                     data = r.json()
                     if data.get("error"):
                         raise LLMError(f"provider error: {str(data['error'])[:200]}")
-                    content = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
+                    choice = (data.get("choices") or [{}])[0]
+                    content = (choice.get("message") or {}).get("content") or ""
                     content = _THINK.sub("", content).strip()
                     if not content:
+                        if choice.get("finish_reason") == "length":
+                            # It spent the whole budget thinking. The same request will do the same, so don't repeat it:
+                            # the caller retries with more room instead.
+                            raise LLMError("empty completion (ran out of tokens while thinking)")
                         raise LLMError("empty completion")
                     return content
                 if r.status_code in (429, 500, 502, 503, 504):
@@ -57,6 +62,8 @@ class OpenRouter:
                 last = LLMError(f"network: {type(e).__name__}")
             except LLMError as e:
                 # empty completions and provider hiccups are worth one more try; auth/4xx are not
+                if str(e).startswith("empty completion (ran out"):
+                    raise
                 if str(e).startswith(("empty", "provider")):
                     last = e
                 else:

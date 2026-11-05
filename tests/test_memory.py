@@ -753,3 +753,55 @@ def test_meh_keeps_the_chat_around_the_reply_and_what_she_was_shown(db_url):
     text = format_flag(row)
     assert row["trace"]["kind"] == "reply" and "How you are right now" in row["trace"]["note"]
     assert "jordan: morning" in text and "flagged reply (all of it):" in text and "what she was shown right before replying" in text
+
+
+def test_failing_upkeep_backs_off_instead_of_retrying_every_minute(db_url):
+    t = [NOW]
+    async def go():
+        c, db, llm, mem = mk(db_url, clock=lambda: t[0])
+        await db.migrate()
+        await db.add_message(1, "user", "hi", NOW - 10)
+        calls = {"summary": 0, "episode": 0}
+        async def bad_summary(chat_id, now):
+            calls["summary"] += 1
+            raise RuntimeError("empty completion")
+        async def fine_episode(chat_id, now, quiet_for=3600):
+            calls["episode"] += 1
+            return False
+        mem.roll_summary, mem.close_episode = bad_summary, fine_episode
+        keeper = MemoryKeeper(c, db, mem, clock=lambda: t[0])
+        for step in range(5):                                      # five checks, a minute apart
+            t[0] = NOW + step * 60
+            await keeper.tick()
+        quick = dict(calls)
+        t[0] = NOW + 5 * 60                                        # the second failure doubled the wait to 4 minutes (until 6:00)
+        await keeper.tick()
+        still_waiting = calls["summary"]
+        t[0] = NOW + 7 * 60
+        await keeper.tick()
+        await db.close()
+        return quick, still_waiting, calls
+    quick, still_waiting, calls = run(go())
+    assert quick == {"summary": 2, "episode": 5}                   # tried at 0 and at 2 minutes, not every minute
+    assert still_waiting == 2 and calls["summary"] == 3 and calls["episode"] == 7   # waits longer each time; other jobs are unaffected
+
+
+def test_running_out_of_tokens_while_thinking_is_not_retried_blindly():
+    from astrid.llm import LLMError, OpenRouter
+    import astrid.llm as llm_mod
+    posts = []
+    class R:
+        status_code = 200
+        def json(self): return {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}
+    class S:
+        def post(self, *a, **k): posts.append(1); return R()
+    real = llm_mod.session
+    llm_mod.session = lambda: S()
+    try:
+        try:
+            OpenRouter("k")._post({"model": "m", "messages": []}, 5)
+        except LLMError as e:
+            err = str(e)
+    finally:
+        llm_mod.session = real
+    assert len(posts) == 1 and err.startswith("empty completion (ran out")             # one call, not three
