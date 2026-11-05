@@ -48,6 +48,7 @@ class OpenRouter:
                     content = (choice.get("message") or {}).get("content") or ""
                     content = _THINK.sub("", content).strip()
                     if not content:
+                        log.warning("empty completion from %s: finish=%s usage=%s", payload.get("model"), choice.get("finish_reason"), data.get("usage"))
                         if choice.get("finish_reason") == "length":
                             # It spent the whole budget thinking. The same request will do the same, so don't repeat it:
                             # the caller retries with more room instead.

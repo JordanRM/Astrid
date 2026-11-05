@@ -353,11 +353,20 @@ class Memory:
         runs out of tokens while thinking gets one more try with double the room, then the other model gets a go."""
         first, second = (self.cfg.interactor_model, self.cfg.thinking_model) if fast else (self.cfg.thinking_model, self.cfg.interactor_model)
         last: Exception | None = None
-        for model in dict.fromkeys((first, second)):
+        models = list(dict.fromkeys((first, second)))
+        for model in models:
             msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+            # Plain writing doesn't need reasoning; turning it off stops the model burning its whole budget thinking.
+            extra = {"reasoning": {"enabled": False}} if fast else None
             for attempt in (1, 2):
                 try:
-                    raw = await self.llm.chat(model, msgs, max_tokens=max_tokens * attempt, temperature=0.4, timeout=120)
+                    try:
+                        raw = await self.llm.chat(model, msgs, max_tokens=max_tokens * attempt, temperature=0.4, timeout=120, extra=extra)
+                    except LLMError as e:
+                        if extra is None or str(e).startswith("empty") or not str(e).startswith("HTTP 4"):
+                            raise
+                        extra = None  # this model won't take the switch; ask the plain way
+                        raw = await self.llm.chat(model, msgs, max_tokens=max_tokens * attempt, temperature=0.4, timeout=120)
                 except LLMError as e:
                     if not str(e).startswith("empty"):
                         raise
@@ -369,7 +378,8 @@ class Memory:
                 msgs = msgs[:2] + [{"role": "user", "content": "Reply with ONLY the JSON object, complete."}]
                 break
             else:
-                log.info("memory: %s gave nothing usable, trying the other model", model)
+                if len(models) > 1:
+                    log.info("memory: %s gave nothing usable, trying the other model", model)
         if last is not None:
             raise last
         return None
@@ -499,10 +509,10 @@ class Memory:
             return False
         s = self._summary if self._summary and self._summary.get("day") == local.date().isoformat() else None
         through = int(s["through"]) if s else 0
-        msgs = await self.db.messages_after(chat_id, through, edge, 400, since_ts=midnight)
+        msgs = await self.db.messages_after(chat_id, through, edge, 60, since_ts=midnight)
         if len(msgs) < 8:
             return False
-        convo = "\n".join(f"{'Jordan' if m['role'] == 'user' else 'Astrid'}: {m['content']}" for m in msgs)[-9000:]
+        convo = "\n".join(f"{'Jordan' if m['role'] == 'user' else 'Astrid'}: {m['content']}" for m in msgs)[-6000:]
         data = await self._ask(ROLLING, (f"Summary so far:\n{s['text']}\n\n" if s else "") + f"New messages to fold in:\n{convo}", fast=True)
         text = clean((data or {}).get("summary"), 900)
         if not text:

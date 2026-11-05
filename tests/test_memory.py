@@ -825,3 +825,16 @@ def test_summaries_use_the_fast_model_and_a_model_that_runs_dry_hands_over_to_th
     out, order, data, fast_calls, tokens = run(go())
     assert out["saved"] == 1 and order == ["r1", "r1", "euryale"]          # two tries on the thinking model, then the other one
     assert data == {"summary": "a summary"} and fast_calls == ["euryale"] and tokens == [3000]
+
+
+def test_fast_jobs_switch_reasoning_off_and_ask_plainly_if_the_model_refuses_the_switch(db_url):
+    from astrid.llm import LLMError
+    async def go():
+        c, db, llm, mem = mk(db_url)
+        await db.migrate()
+        llm.script("euryale", LLMError("HTTP 400: unknown parameter"), json.dumps({"summary": "ok"}))
+        data = await mem._ask("s", "u", fast=True)
+        await db.close()
+        return data, [x.get("extra") for x in llm.calls]
+    data, extras = run(go())
+    assert data == {"summary": "ok"} and extras == [{"reasoning": {"enabled": False}}, None]
