@@ -12,6 +12,7 @@ from .curiosity import Wanderer, format_thoughts
 from .search import Brave, SearchError
 from .db import Database
 from .embed import make_embedder
+from .flags import format_flag
 from .engine import Astrid
 from .memory import Memory, MemoryKeeper, effective_strength, is_hazy, when_text
 from .llm import LLMError, OpenRouter
@@ -33,7 +34,7 @@ USAGE = """usage: python -m astrid [command]
   profile  show what she knows about you; change it:  profile set job="..."  |  profile remove job
   consolidate  run the overnight tidy now (fade weak memories, merge small ones, tidy the profile)
   outreach show whether she'd text first right now; force one:  outreach now follow_up|share|miss|want
-  flags    list replies you flagged with /meh in Telegram
+  flags    the latest /meh flags in full, with the chat around them and what she was shown (flags 20 for more; add > flags.txt to save)
   reset    forget the conversation and put her back to a first meeting (add --yes)"""
 
 
@@ -294,12 +295,13 @@ def main() -> int:
         async def go():
             db = Database(cfg.database_url)
             await db.migrate()
-            rows = await db.list_flags()
+            n = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 10
+            rows = await db.list_flags(n)
             await db.close()
             if not rows:
                 print("no flagged replies yet")
             for r in reversed(rows):
-                print(f"#{r['id']} [{r['mood']}] jordan: {r['user_text']!r}\n    astrid: {r['reply']!r}\n    note: {r['note'] or '-'}")
+                print(format_flag(r, cfg.timezone))
         asyncio.run(go())
         return 0
     print(USAGE)

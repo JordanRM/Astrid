@@ -141,15 +141,18 @@ class Database:
         return None
 
     async def add_flag(self, chat_id: int, user_text: str | None, reply: str, note: str | None,
-                       mood: str | None, state_values: dict) -> None:
+                       mood: str | None, state_values: dict, context: list | None = None, trace: dict | None = None) -> None:
         await self.execute(
-            "insert into astrid.flags (chat_id, user_text, reply, note, mood, state) values (%s, %s, %s, %s, %s, %s::jsonb)",
-            (chat_id, user_text, reply, note, mood, json.dumps(state_values)),
+            "insert into astrid.flags (chat_id, user_text, reply, note, mood, state, context, trace) "
+            "values (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb)",
+            (chat_id, user_text, reply, note, mood, json.dumps(state_values),
+             json.dumps(context) if context is not None else None, json.dumps(trace) if trace is not None else None),
         )
 
     async def list_flags(self, limit: int = 200) -> list[dict]:
         return await self.fetch(
-            "select id, created_at, user_text, reply, note, mood from astrid.flags order by id desc limit %s", (limit,)
+            "select id, extract(epoch from created_at)::float8 as created_at, user_text, reply, note, mood, state, context, trace "
+            "from astrid.flags order by id desc limit %s", (limit,)
         )
 
     # ---- opinions ----

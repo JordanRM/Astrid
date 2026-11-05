@@ -34,6 +34,8 @@ class Astrid:
         self.db = db
         self.llm = llm
         self.memory = memory
+        self.trace: dict[int, dict] = {}     # what she was shown for her latest reply, kept for /meh
+        self._last_gen: dict = {}
         self.now = clock
         self.tz = ZoneInfo(cfg.timezone)
         self._reply_locks: dict[int, asyncio.Lock] = {}
@@ -144,6 +146,8 @@ class Astrid:
             reply, calls = await self._generate(messages, heat, fresh, lambda r: (critic.claimed_reading(r) if not (heat or has_inner) else []) + critic.time_slips(r, local.hour))
             reply = texting.normalize(reply) or reply
             generated = time.monotonic()
+            self.trace[chat_id] = {"kind": "reply", "mode": "heated" if heat else "everyday", "model": self._last_gen.get("model"),
+                                   "rewritten": self._last_gen.get("problems") or [], "profile": profile_text, "note": context}
             await self.db.add_message(chat_id, "assistant", reply, self.now())
             log.info(
                 "reply ready in %.1fs (database %.1fs, model %.1fs, %d model call%s)%s",
@@ -203,6 +207,8 @@ class Astrid:
                 if not reply or critic.hard_violations(reply) or (heat and heated.slips(reply, fresh)):
                     log.info("outreach: draft didn't pass the checks; not sending")
                     return None
+            self.trace[chat_id] = {"kind": "outreach", "mode": "heated" if heat else "everyday", "model": self._last_gen.get("model"),
+                                   "rewritten": self._last_gen.get("problems") or [], "profile": profile_text, "note": context}
             await self.db.add_message(chat_id, "assistant", reply, self.now())
             log.info("outreach written (%d model call%s)%s", calls, "" if calls == 1 else "s", " [heated]" if heat else "")
             return reply
@@ -239,6 +245,7 @@ class Astrid:
             if critic.hard_violations(retry):
                 retry = critic.strip_asterisk_actions(retry) or retry
             reply = retry
+        self._last_gen = {"model": model, "problems": problems}
         return reply.strip(), calls
 
     # ---- background appraisal ----

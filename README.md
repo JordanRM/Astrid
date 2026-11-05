@@ -122,6 +122,15 @@ She can text first. It isn't a timer: every 5 minutes she weighs whether anythin
     .venv/bin/python -m astrid outreach now want         # force one: follow_up, share, miss or want
     OUTREACH=off in .env                                  # turns it off
 
+## Flagging replies
+
+`/meh [what was off]` in Telegram flags her latest reply (all of its texts) without reaching her or the conversation.
+It keeps the last 12 messages around it, how she was set up (mode, model, any rewrite and why), what she knew about you,
+and the note she was shown right before replying (state, memories, thoughts, hints). Read them back, or save to a file:
+
+    .venv/bin/python -m astrid flags            # latest 10, in full
+    .venv/bin/python -m astrid flags 25 > flags.txt
+
 ## Tests
 
 `python -m pytest tests` needs a local PostgreSQL (see `tests/conftest.py` for the connection string) and runs the real database code against it, with the model and Telegram APIs mocked.

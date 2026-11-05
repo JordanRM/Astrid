@@ -734,3 +734,22 @@ def test_the_checks_do_not_fire_on_her_own_example_voice():
             if critic.hard_violations(line) or critic.time_slips(line, 21) or reading or first or any("neat sayings" in h or "go to bed" in h or "anecdote" in h for h in hints):
                 offenders.append(line)
     assert offenders == []
+
+
+def test_meh_keeps_the_chat_around_the_reply_and_what_she_was_shown(db_url):
+    from astrid.flags import format_flag
+    async def go():
+        c, db, llm, mem = mk(db_url)
+        await db.migrate()
+        llm.script("euryale", "morning", "you'd think")
+        eng = Astrid(c, db, llm, clock=lambda: NOW)
+        await eng.reply(1, "morning")
+        await eng.reply(1, "what's up")
+        await db.add_flag(1, "what's up", "you'd think", "odd", "wry", {"trust": 3}, [{"role": "user", "content": "morning", "at": NOW}], eng.trace[1])
+        row = (await db.list_flags(1))[0]
+        await db.close()
+        return row
+    row = run(go())
+    text = format_flag(row)
+    assert row["trace"]["kind"] == "reply" and "How you are right now" in row["trace"]["note"]
+    assert "jordan: morning" in text and "flagged reply (all of it):" in text and "what she was shown right before replying" in text

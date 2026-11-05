@@ -131,7 +131,10 @@ class Bot:
                 await self.tg.send_message(chat_id, "(nothing to flag yet)")
                 return
             state = await self.db.get_state()
-            await self.db.add_flag(chat_id, last[0], last[1], note or None, state.mood, state.values)
+            recent = await self.db.recent_messages(chat_id, 12)
+            context = [{"role": m.role, "content": m.content, "at": m.ts} for m in recent]
+            await self.db.add_flag(chat_id, last[0], last[1], note or None, state.mood, state.values, context,
+                                   getattr(self.engine, "trace", {}).get(chat_id))
             log.info("flagged reply %r note=%r", last[1][:60], note)
             await self.tg.send_message(chat_id, "(noted)")
         except TelegramError as e:
