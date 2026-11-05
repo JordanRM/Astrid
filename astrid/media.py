@@ -94,14 +94,16 @@ def offer_chance(state, boost: float = 1.0) -> float:
 
 def offer_note(row: dict) -> str:
     own = {
-        "his": "It matches something he's told you he likes.",
+        "his": "It fits something he's told you he likes.",
         "hers": "It's something you like yourself, and he may not know that about you yet. If it fits, say so and ask what he thinks.",
         "both": "It's something you think you'd both like.",
     }.get(row.get("owner"), "")
-    return (f"You've got a link you want to share right now: {row['url']} ({row.get('title') or 'no title'}). {own} "
-            f"Your reason: {row.get('why') or 'you thought of him'}. Put the link on its own line, with a few words in your own voice around it "
-            "(like \"like this\", or what it is, or why you'd want him to see it), then carry on with what you're doing. You haven't watched it "
-            "yourself; you found it. Share only this link, never any other address.")
+    why = row.get("why")
+    return (f"You've got a link you want to send him right now: {row['url']}. {own} "
+            + (f"(Background for you only, never quote or explain it: {why}.) " if why else "")
+            + "Put the link on its own line with a few words of your own around it, talking to him as \"you\", never about him as \"he\" "
+            "(\"like this\", \"watch this\", \"this made me think of you\"). Don't describe the video or say why you picked it. Then carry on "
+            "with what you're doing. You haven't watched it yourself; you found it. Share only this link, never any other address.")
 
 
 class Scout:

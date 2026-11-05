@@ -233,3 +233,9 @@ def test_test_mode_always_offers_a_stocked_link_in_a_heated_moment(db_url):
         return got, cold
     got, cold = run(go())
     assert got and cold is None
+
+
+def test_her_note_keeps_the_reason_private_and_speaks_to_him_as_you():
+    n = media.offer_note({"url": "https://goodsite.com/a", "owner": "his", "why": "he likes it slow"})
+    assert "never quote or explain" in n and "as \"you\"" in n and "Don't describe the video" in n
+    assert "https://goodsite.com/a" in n
