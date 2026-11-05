@@ -47,6 +47,20 @@ _APHORISM = re.compile(
 _ANECDOTE = re.compile(r"\bi (?:once|cleared|did that too|did the same|went through (?:the same|that)|learned (?:it )?the hard way)\b", re.I)
 
 
+# Acting as if they've talked before, on the very first message ever.
+_PRIOR_HISTORY = re.compile(
+    r"\bwelcome back\b|\blast time\b|\bwe(?:'ve| have) (?:talked|spoken|been|done)\b|\bas usual\b|\bagain,? (?:jordan|huh)\b|"
+    r"good to (?:see|hear from) you again|\bmissed you\b|\bfrom (?:before|earlier)\b|\bwhere we left off\b|"
+    r"\byou (?:told|said|mentioned) (?:me )?(?:before|earlier|last)\b|\bback (?:again|already)\b|\bour (?:last|earlier|usual) \w+",
+    re.I,
+)
+
+
+def first_contact_slips(reply: str) -> list[str]:
+    """On the very first message ever, she can't act as if they've talked before."""
+    return ["acted as if you've talked before; this is the first time you've ever spoken"] if _PRIOR_HISTORY.search(reply or "") else []
+
+
 def hard_violations(reply: str) -> list[str]:
     return [why for rx, why in _HARD if rx.search(reply)]
 

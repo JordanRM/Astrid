@@ -117,8 +117,11 @@ class Astrid:
                     await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
                 has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)
                 reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
+                first_note = ("This is the very first time you and Jordan have ever talked. You don't know him yet beyond what's in your notes, "
+                              "and you have no shared history: no earlier chats, nothing he's told you, no 'again' or 'back'. Meet him as someone "
+                              "new that you're curious about." if fresh == 2 else None)
                 context = persona.build_context(
-                    render(state, local), gap_note,
+                    render(state, local), "\n".join(x for x in (gap_note, first_note) if x) or None,
                     examples.render(examples.choose(state, local, self.rng, extra={"inner_life" if has_inner else "no_inner_life"})),
                     opinions.render(known), curiosity.render(in_mind, now), memory_text, summary_text, reminder)
                 static = persona.build_static(None, profile_text)
@@ -129,7 +132,7 @@ class Astrid:
             )
 
             prepared = time.monotonic()
-            reply, calls = await self._generate(messages, heat, fresh if heat else 0)
+            reply, calls = await self._generate(messages, heat, fresh)
             reply = texting.normalize(reply) or reply
             generated = time.monotonic()
             await self.db.add_message(chat_id, "assistant", reply, self.now())
@@ -156,7 +159,8 @@ class Astrid:
                       max_tokens=self.cfg.heated_max_tokens if heat else self.cfg.max_reply_tokens)
         if self.cfg.provider_sort:
             kwargs["extra"] = {"provider": {"sort": self.cfg.provider_sort}}
-        check = (lambda r: critic.hard_violations(r) + heated.slips(r, opener)) if heat else critic.hard_violations
+        check = (lambda r: critic.hard_violations(r) + heated.slips(r, opener)) if heat else (
+            lambda r: critic.hard_violations(r) + (critic.first_contact_slips(r) if opener == 2 else []))
         calls = 1
         reply = await self._chat(model, messages, kwargs)
         problems = check(reply)

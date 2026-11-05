@@ -651,3 +651,22 @@ def test_an_empty_completion_is_retried_with_more_room_instead_of_failing(db_url
         return out, [x["max_tokens"] for x in llm.calls]
     out, tokens = run(go())
     assert out == "ok, sure" and tokens == [600, 1800]
+
+
+def test_the_very_first_message_ever_cant_pretend_to_a_shared_history(db_url):
+    from astrid import critic
+    assert critic.first_contact_slips("welcome back. missed you") and critic.first_contact_slips("last time you said that")
+    assert not critic.first_contact_slips("hey. what's on your mind") and not critic.first_contact_slips("say that again?")
+    async def go():
+        c, db, llm, _ = mk(db_url)
+        await db.migrate()
+        llm.script("euryale", "good to see you again, jordan", "hey. who's this, then")
+        first = await Astrid(c, db, llm, clock=lambda: NOW).reply(1, "hey")
+        notes = prompt(llm.calls[0])
+        await Astrid(c, db, llm, clock=lambda: NOW + 60).reply(1, "just me")
+        second = prompt(llm.calls[-1])
+        await db.close()
+        return first, notes, second, len([x for x in llm.calls])
+    first, notes, second, calls = run(go())
+    assert first == "hey. who's this, then" and calls == 3                                   # rewritten once on the first message
+    assert "very first time you and Jordan have ever talked" in notes and "very first time" not in second
