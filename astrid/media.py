@@ -32,15 +32,19 @@ Pick one of:
 - "his": something that matches a taste he's told you about.
 - "hers": something you like yourself, from what you've read or what you've felt, that he may not know about yet.
 - "both": where the two overlap.
-Write a short search (3 to 8 plain words) describing the kind of thing, never names of people. Illustrated or generated content is fine and preferred. Adults only, always consensual.
+Write a short search (3 to 8 plain words) describing the kind of thing, never names of people. Illustrated or generated content is fine and preferred. Adults only, always consensual. He is a straight man and you are a woman: search only for straight content centred on a woman with a man, or a woman alone. Never anything with two men, gay, bi or trans content.
 
 Reply with ONLY JSON:
 {"owner": "his" | "hers" | "both", "query": "the search terms", "why": "one short line in your own words on why this one"}"""
 
 
+# Jordan is a straight man and she is a woman: nothing male-with-male, trans or gay-targeted gets through, in a search or a result.
+_NOT_STRAIGHT = re.compile(r"\bgay\b|\bhomo(?:sexual)?\b|\bmale[- ]?(?:on|with|x)[- ]?male\b|\bm/m\b|\btwinks?\b|\bshemales?\b|\btrann(?:y|ies)\b|\bladyboys?\b|\bfemboys?\b|\btrans(?:gender|sexual)?\b|\bbi(?:sexual)?\b|\bmmf\b|\bgay[- ]for[- ]pay\b|\bmen only\b|\bguys? (?:fuck|suck|sucking|fucking)\b|\bboys?\b", re.I)
+
+
 def unsafe(text: str) -> bool:
     t = text or ""
-    return bool(_ALWAYS.search(t) or _MINOR.search(t) or _ANIMAL.search(t) or _NONCON.search(t) or _REAL.search(t))
+    return bool(_ALWAYS.search(t) or _MINOR.search(t) or _ANIMAL.search(t) or _NONCON.search(t) or _REAL.search(t) or _NOT_STRAIGHT.search(t))
 
 
 def domain_of(url: str) -> str:
@@ -105,7 +109,8 @@ def offer_note(row: dict) -> str:
             + "Put the link on its own line with something natural around it, to him as \"you\", never about him as \"he\": a few words, or "
             "a line or two on why you want him to see it, whatever fits the moment. You can talk about what the title and description show. "
             "You haven't watched it, so don't claim scenes, moments, timestamps or how it made you feel while watching. "
-            "Share only this link, never any other address.")
+            "Don't say who is doing what, or describe what happens, beyond what the title and description state: you don't know the performers or what "
+            "they do, and he is a straight man, so never assume it's a man on screen. Share only this link, never any other address.")
 
 
 class Scout:

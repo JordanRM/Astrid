@@ -260,3 +260,13 @@ def test_she_recognises_tastes_without_a_keyword_and_stops_when_there_is_nothing
         return got, his_only, nothing, sc2.brave.queries
     got, hers_only, nothing, queried = run(go())
     assert got and hers_only == [] and nothing == [] and queried == []
+
+
+@pytest.mark.parametrize("text", ["gay couple", "two men only", "shemale compilation", "twink video", "bisexual threesome", "femboy", "male on male", "trans girl", "MMF threesome"])
+def test_nothing_that_isnt_straight_gets_through(text):
+    assert media.unsafe(text)
+
+
+def test_her_note_does_not_let_her_assume_who_is_on_screen():
+    n = media.offer_note({"url": "https://goodsite.com/a", "owner": "his", "title": "deepthroat"})
+    assert "never assume it's a man on screen" in n
