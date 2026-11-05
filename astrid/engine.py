@@ -168,14 +168,15 @@ class Astrid:
         spaced out, and a few a day at most."""
         if not heat or not getattr(self.cfg, "media_domains", ()):
             return None
-        if self.rng.random() >= media.offer_chance(state, boost):
-            return None
-        last = await self.db.get_setting("media_last")
-        if last and now - float(last) < media.SPACING_MIN * 60:
-            return None
-        local = datetime.fromtimestamp(now, self.tz)
-        if await self.db.media_shared_since(local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()) >= media.DAILY_CAP:
-            return None
+        if not getattr(self.cfg, "media_force", False):
+            if self.rng.random() >= media.offer_chance(state, boost):
+                return None
+            last = await self.db.get_setting("media_last")
+            if last and now - float(last) < media.SPACING_MIN * 60:
+                return None
+            local = datetime.fromtimestamp(now, self.tz)
+            if await self.db.media_shared_since(local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()) >= media.DAILY_CAP:
+                return None
         rows = [r for r in await self.db.list_media(40, unshared_only=True) if now - float(r["created_at"]) < 14 * 86400]
         return self.rng.choice(rows) if rows else None
 

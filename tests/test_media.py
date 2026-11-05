@@ -218,3 +218,18 @@ def test_front_pages_searches_and_listings_are_not_links_to_share():
           "https://goodsite.com/search/slow", "https://goodsite.com/channel/xyz", "https://goodsite.com/tags/slow", "https://goodsite.com/?q=slow"]
     rows = [{"url": u, "title": "slow couple art", "snippet": ""} for u in ok + no]
     assert [r["url"] for r in media.clean_results(rows, DOMAINS)] == ok
+
+
+def test_test_mode_always_offers_a_stocked_link_in_a_heated_moment(db_url):
+    async def go():
+        db, llm = Database(db_url), FakeLLM()
+        a = Astrid(make_cfg(db_url, media_domains=DOMAINS, media_force=True), db, llm, clock=lambda: NOW)
+        await ready(db)
+        await db.set_setting("media_last", str(NOW - 60))        # just shared one: normally spaced out
+        calm = st()                                               # no arousal: odds would be zero
+        got = await a._media_offer(calm, NOW, True)
+        cold = await a._media_offer(calm, NOW, False)             # still only in explicit moments
+        await db.close()
+        return got, cold
+    got, cold = run(go())
+    assert got and cold is None

@@ -30,7 +30,7 @@ USAGE = """usage: python -m astrid [command]
   opinions list the views she has formed, with reasons and changes of mind
   state    show her mood and numbers; set them for testing:  state preset heated  |  state set arousal=8 trust=7
   thoughts list what she's read and thought about on her own time
-  media    links she may share in explicit moments: media | media gather | media clear (needs MEDIA_DOMAINS in .env)
+  media    links she may share in explicit moments: media | gather | clear | add <url> his|hers|both (needs MEDIA_DOMAINS in .env)
   wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire, heat)
   memories list what she remembers, strongest first; or search by meaning:  memories "his brother"
   profile  show what she knows about you; change it:  profile set job="..."  |  profile remove job
@@ -221,6 +221,20 @@ def main() -> int:
             if sub == "clear":
                 await db.clear_media()
                 print("cleared")
+            elif sub == "add":
+                # for testing: stock a link by hand.  media add <url> [his|hers|both] [why she likes it]
+                from .media import unsafe, domain_of
+                args = sys.argv[3:]
+                if not args or not args[0].startswith("http"):
+                    print('usage: media add <url> [his|hers|both] ["why she wants to share it"]')
+                else:
+                    owner = args[1] if len(args) > 1 and args[1] in ("his", "hers", "both") else "both"
+                    why = " ".join(args[2:] if len(args) > 1 and args[1] in ("his", "hers", "both") else args[1:]) or "added by hand for testing"
+                    if unsafe(args[0] + " " + why):
+                        print("refused: that trips the filter")
+                    else:
+                        await db.add_media({"url": args[0], "title": "added by hand", "domain": domain_of(args[0]), "owner": owner, "why": why})
+                        print("added")
             elif sub == "gather":
                 llm = OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url)
                 memory = Memory(cfg, db, llm, make_embedder(cfg.embed_model))
