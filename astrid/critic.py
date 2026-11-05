@@ -56,6 +56,17 @@ _PRIOR_HISTORY = re.compile(
 )
 
 
+_NAG = re.compile(r"\bgo to (?:bed|sleep)\b|\bget (?:some )?sleep\b|\bget to bed\b|\bbed (?:time|early)\b|\bsleep soon\b", re.I)
+_CLAIMED_READING = re.compile(
+    r"\b(?:i was|i've been|i have been|been|i just|just been) (?:reading|looking into|digging into|researching|watching)\b|\breading about\b|"
+    r"\b(?:i )?(?:read|came across|stumbled on|fell down) (?:a |an |the |about |into )", re.I)
+
+
+def claimed_reading(reply: str) -> list[str]:
+    """She hasn't read anything on her own recently, so she can't claim to have."""
+    return ["claimed to have been reading or looking into something, but you haven't read anything on your own recently"] if _CLAIMED_READING.search(reply or "") else []
+
+
 def first_contact_slips(reply: str) -> list[str]:
     """On the very first message ever, she can't act as if they've talked before."""
     return ["acted as if you've talked before; this is the first time you've ever spoken"] if _PRIOR_HISTORY.search(reply or "") else []
@@ -114,6 +125,9 @@ def reply_hints(recent_replies: list[str]) -> list[str]:
 
     if sum(1 for r in recent[-3:] if _APHORISM.search(r)) >= 1:
         hints.append("You've been coining neat sayings and tidy closing lines. This time say it in plain, ordinary sentences with no punchline or moral.")
+
+    if sum(1 for r in recent[-4:] if _NAG.search(r)) >= 1:
+        hints.append("You've already told him to go to bed or get sleep. Don't say it again or mention bedtime, he heard you.")
 
     if sum(1 for r in recent[-3:] if _ANECDOTE.search(r)) >= 1:
         hints.append("You made up a personal anecdote. You don't have a past like that. Share what you've read or what you think instead.")

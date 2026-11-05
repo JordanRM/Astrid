@@ -186,7 +186,7 @@ def test_gates_she_never_starts_before_he_has_written_and_never_cuts_into_a_conv
         await e.db.close()
         return a, b, c
     a, b, c = run(go())
-    assert a == "he hasn't ever written" and b == "mid-conversation" and c is None
+    assert a == "he hasn't ever written" and b.startswith("mid-conversation") and c is None
 
 
 def test_daily_cap_spacing_and_backing_off_when_he_doesnt_answer(db_url):

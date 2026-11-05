@@ -84,6 +84,7 @@ class Astrid:
             # 0: mid-conversation. 1: nothing said yet today. 2: nothing ever said (so no earlier scenes can be claimed either).
             talked_today = any(datetime.fromtimestamp(m.ts, self.tz).date() == local.date() for m in history[:-1])
             fresh = 0 if talked_today else (1 if len(history) > 1 else 2)
+            has_inner = True
             profile_text, memory_text, summary_text = await self._remember(state, user_lines[-3:] + assistant_lines[-1:], heat, now, local)
             if heat:
                 # Not walled off: views she holds and her own reading about sex and desire can still come through.
@@ -126,7 +127,11 @@ class Astrid:
                 context = persona.build_context(
                     render(state, local), "\n".join(x for x in (gap_note, first_note) if x) or None,
                     examples.render(examples.choose(state, local, self.rng, extra={"inner_life" if has_inner else "no_inner_life"})),
-                    opinions.render(known), curiosity.render(in_mind, now), memory_text, summary_text, reminder)
+                    opinions.render(known),
+                    curiosity.render(in_mind, now) or (None if has_inner else
+                        "You haven't read or looked into anything on your own recently. If he asks what you've been up to, say so plainly, "
+                        "dry and short. Don't invent reading, cases, articles or activities."),
+                    memory_text, summary_text, reminder)
                 static = persona.build_static(None, profile_text)
             messages = (
                 [{"role": "system", "content": static}]
@@ -135,7 +140,7 @@ class Astrid:
             )
 
             prepared = time.monotonic()
-            reply, calls = await self._generate(messages, heat, fresh)
+            reply, calls = await self._generate(messages, heat, fresh, None if heat or has_inner else critic.claimed_reading)
             reply = texting.normalize(reply) or reply
             generated = time.monotonic()
             await self.db.add_message(chat_id, "assistant", reply, self.now())
@@ -211,14 +216,14 @@ class Astrid:
             log.info("empty completion; retrying with more room")
             return await self.llm.chat(model, messages, **{**kwargs, "max_tokens": int(kwargs.get("max_tokens", 350)) * 3})
 
-    async def _generate(self, messages: list[dict], heat: bool = False, opener: int = 0) -> tuple[str, int]:
+    async def _generate(self, messages: list[dict], heat: bool = False, opener: int = 0, extra=None) -> tuple[str, int]:
         model = (self.cfg.heated_model or self.cfg.interactor_model) if heat else self.cfg.interactor_model
         kwargs = dict(temperature=self.cfg.heated_temperature if heat else self.cfg.temperature,
                       max_tokens=self.cfg.heated_max_tokens if heat else self.cfg.max_reply_tokens)
         if self.cfg.provider_sort:
             kwargs["extra"] = {"provider": {"sort": self.cfg.provider_sort}}
         check = (lambda r: critic.hard_violations(r) + heated.slips(r, opener)) if heat else (
-            lambda r: critic.hard_violations(r) + (critic.first_contact_slips(r) if opener == 2 else []))
+            lambda r: critic.hard_violations(r) + (critic.first_contact_slips(r) if opener == 2 else []) + (extra(r) if extra else []))
         calls = 1
         reply = await self._chat(model, messages, kwargs)
         problems = check(reply)

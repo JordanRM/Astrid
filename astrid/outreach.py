@@ -27,6 +27,7 @@ log = logging.getLogger("astrid.outreach")
 
 BASE_P = 0.03            # per 5-minute check, before urge, mood and hour are applied
 MAX_DAILY = 6
+ACTIVE_MINUTES = 25      # she doesn't text into a conversation that's still going: nothing from either of you in this long
 
 
 def quiet_window(local: datetime) -> bool:
@@ -179,8 +180,8 @@ class Outreach:
         if last_user is None:
             return "he hasn't ever written"
         last_any = await self.db.last_message_at()
-        if last_any and now - last_any < 25 * 60:
-            return "mid-conversation"
+        if last_any and now - last_any < ACTIVE_MINUTES * 60:
+            return f"mid-conversation (last message {int((now - last_any) // 60)} min ago; she waits {ACTIVE_MINUTES})"
         rows = await self._log()
         today = [r for r in rows if datetime.fromtimestamp(r["at"], self.tz).date() == local.date()]
         if len(today) >= self.tide.cap():
@@ -250,6 +251,12 @@ class Outreach:
             await self.db.save_state(st, now, "outreach", {"arousal": st.values["arousal"]}, "texted him first, wanting him")
         log.info("reached out (%s%s): %r", plan.reason, ", quiet hours" if quiet else "", text[:80])
         return text
+
+    FORCED = {
+        "miss": Plan("miss", 1.0, "You haven't heard from him for a while and you've noticed. Say that you want to hear from him. Warm and plain, no guilt."),
+        "want": Plan("want", 1.0, "You want him right now. Say so as wanting, in plain words if that's what it is, and let him respond. You don't know "
+                                  "what he's doing.", heat=True, cues=["wanting him", "what we did"]),
+    }
 
     async def tick(self) -> str | None:
         plan = await self.decide()

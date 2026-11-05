@@ -104,12 +104,17 @@ def _band(v: float, bands: list) -> str:
     return bands[-1][1]
 
 
+def day_part(hour: int) -> str:
+    return ("the middle of the night" if hour < 5 else "morning" if hour < 12 else "afternoon" if hour < 17
+            else "evening" if hour < 22 else "late at night")
+
+
 def render(state: State, local_now: datetime) -> str:
     """Plain-language description of how she is right now, for the prompt."""
     v = state.values
     energy = clamp(v["energy"] + circadian_energy_shift(local_now.hour))
     lines = [
-        f"Right now it is {local_now.strftime('%A, %B %-d, %Y, %-I:%M %p')} Eastern time. You always know the exact "
+        f"Right now it is {local_now.strftime('%A, %B %-d, %Y, %-I:%M %p')} Eastern time ({day_part(local_now.hour)}). You always know the exact "
         "date and time. If it comes up, just say it plainly.",
         f"Your mood right now: {state.mood}.",
     ]

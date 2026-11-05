@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 import random
 import time
 
@@ -670,3 +671,27 @@ def test_the_very_first_message_ever_cant_pretend_to_a_shared_history(db_url):
     first, notes, second, calls = run(go())
     assert first == "hey. who's this, then" and calls == 3                                   # rewritten once on the first message
     assert "first time you and Jordan have ever talked" in notes and "first time you and Jordan have ever talked" not in second
+
+
+def test_she_cant_claim_reading_she_hasnt_done_and_stops_nagging_about_bed(db_url):
+    from astrid import critic
+    assert critic.claimed_reading("reading about a court case that's been going for years") and critic.claimed_reading("i was looking into old maps")
+    assert not critic.claimed_reading("not much. it's been quiet") and not critic.claimed_reading("what are you reading these days")
+    assert any("go to bed" in h for h in critic.reply_hints(["go to bed when you said you would", "ok"]))
+    async def go():
+        c, db, llm, _ = mk(db_url)
+        await db.migrate()
+        llm.script("euryale", "reading about a court case, mostly", "not much. quiet night")
+        out = await Astrid(c, db, llm, clock=lambda: NOW).reply(1, "what are you up to?")
+        p = prompt(llm.calls[0])
+        await db.close()
+        return out, p, len(llm.calls)
+    out, p, calls = run(go())
+    assert out == "not much. quiet night" and calls == 2                                      # the invented reading was rewritten
+    assert "haven't read or looked into anything" in p
+
+
+def test_the_time_comes_with_the_part_of_the_day():
+    from astrid.state import day_part, render
+    assert [day_part(h) for h in (3, 9, 14, 21, 23)] == ["the middle of the night", "morning", "afternoon", "evening", "late at night"]
+    assert "9:18 PM Eastern time (evening)" in render(State(dict(BASELINE), "x", None, None, 0), datetime(2026, 11, 4, 21, 18))

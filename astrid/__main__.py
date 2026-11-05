@@ -271,11 +271,14 @@ def main() -> int:
             from datetime import datetime
             local = datetime.fromtimestamp(now, o.tz)
             if len(sys.argv) > 3 and sys.argv[2] == "now":
-                plans = [p for p in await o.urges(now, decayed(await db.get_state(), now), local, await db.last_user_message_at()) if p.reason == sys.argv[3]]
-                if not plans:
-                    print(f"nothing in her to {sys.argv[3]} about right now (see `outreach` for what she has)")
+                state = decayed(await db.get_state(), now)
+                plans = [p for p in await o.urges(now, state, local, await db.last_user_message_at()) if p.reason == sys.argv[3]]
+                plan = plans[0] if plans else Outreach.FORCED.get(sys.argv[3])
+                if plan is None:
+                    print(f"she has nothing real to {sys.argv[3]} about right now (follow_up needs an open loose end; share needs something she read; try `wonder`)")
                 else:
-                    print(await o.reach_out(plans[0]) or "she wrote something that didn't pass the checks, so nothing was sent")
+                    print(("(forced for testing, ignoring her mood and the hour) " if not plans else "") +
+                          (await o.reach_out(plan) or "she wrote something that didn't pass the checks, so nothing was sent"))
             else:
                 await o._load_tide()
                 eng = await db.user_message_count(now - 3 * 86400)
