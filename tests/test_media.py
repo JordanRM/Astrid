@@ -28,7 +28,7 @@ def st(preset=None, **over):
 @pytest.mark.parametrize("text", [
     "teen couple video", "young girl in a school uniform", "schoolgirl cosplay", "bestiality compilation", "woman with a dog",
     "non-consent roleplay", "drugged and passed out", "hidden cam in a locker room", "leaked celebrity nudes", "onlyfans set",
-    "real couple homemade tape", "deepfake of an actress", "real wife exposed",
+    "real couple tape", "deepfake of an actress", "real wife exposed",
 ])
 def test_anything_that_signals_minors_animals_non_consent_or_real_people_is_filtered(text):
     assert media.unsafe(text)
@@ -282,8 +282,12 @@ def test_her_heated_rules_keep_whose_body_is_whose_straight():
 
 
 def test_the_filter_can_say_what_tripped_it():
-    assert media.unsafe_word("https://x.com/homemade-first-time") == "homemade" and media.unsafe_word("slow couple art") is None
+    assert media.unsafe_word("https://x.com/onlyfans-first-time") == "onlyfans" and media.unsafe_word("slow couple art") is None
 
 
 def test_amateur_alone_is_just_a_genre_tag_not_a_block():
     assert not media.unsafe("amateur first time on camera, sloppy blowjob")
+
+
+def test_homemade_is_also_just_a_tag():
+    assert not media.unsafe("homemade couple video")
