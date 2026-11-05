@@ -713,7 +713,7 @@ def test_she_cant_say_its_late_in_the_evening_or_nag_and_the_first_meeting_ackno
         return out, p
     out, p = run(go())
     assert out == "hey. so this is how it starts"                                           # the 'late' slip was rewritten
-    assert "that's a real moment" in p and "no interview" in p
+    assert "acknowledge what this is" in p and "no interview" in p
 
 
 def at_evening():

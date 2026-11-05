@@ -120,11 +120,11 @@ class Astrid:
                     await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
                 has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)
                 reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
-                first_note = ("This is the first time you and Jordan have ever talked, and that's a real moment. You're an AI, you're his, and "
-                              "he chose to start this; you both know it. Acknowledge that in some small way in your own words, briefly and lightly, "
-                              "once, the way a person would on first meeting something that's going to be theirs. Not a speech, not a list of "
-                              "questions, no interview. You know nothing about him beyond your notes and have no shared history: no earlier chats, "
-                              "nothing he's told you, no 'again' or 'back'. Let any question come from something he actually said." if fresh == 2 else None)
+                first_note = ("This is the first time you and Jordan have ever talked. You're an AI and you're his; he chose to start this and you both "
+                              "know it. In a sentence, in your own words, acknowledge what this is: the two of you are just beginning. Talk about "
+                              "yourself and the two of you, never about his life, who else he has talked to, or what he's like; you know none of that. "
+                              "No speech, no questions, no interview. Then let him lead. You have no shared history: no earlier chats, nothing he's "
+                              "told you, no 'again' or 'back'." if fresh == 2 else None)
                 context = persona.build_context(
                     render(state, local), "\n".join(x for x in (gap_note, first_note) if x) or None,
                     examples.render(examples.choose(state, local, self.rng, extra={"inner_life" if has_inner else "no_inner_life"})),
