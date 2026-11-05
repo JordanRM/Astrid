@@ -274,3 +274,8 @@ def test_her_note_does_not_let_her_assume_who_is_on_screen():
 
 def test_her_note_lets_her_ask_him_what_he_is_seeing():
     assert "ask him what he's seeing" in media.offer_note({"url": "https://goodsite.com/a", "owner": "both"})
+
+
+def test_her_heated_rules_keep_whose_body_is_whose_straight():
+    from astrid import heated
+    assert "Keep whose body is whose straight" in heated.RULES and "never his" in heated.RULES
