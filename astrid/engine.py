@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from . import appraisal, critic, curiosity, examples, heated, opinions, persona, texting
 from .config import Config
 from .llm import LLMError
+from . import bond
 from .state import apply_deltas, decayed, length_guidance, render
 
 log = logging.getLogger("astrid.engine")
@@ -312,7 +313,10 @@ class Astrid:
                         messages = messages + [
                             {"role": "user", "content": "Reply with ONLY the JSON object described above. No other text."}
                         ]
-                new, applied = apply_deltas(state, result["deltas"], scale=min(len(exchanges), 3))
+                plan = await bond.todays_plan(self.db, datetime.fromtimestamp(self.now(), self.tz).date().isoformat(), state.values)
+                deltas = bond.gate(result["deltas"], plan)
+                await bond.save_plan(self.db, plan)
+                new, applied = apply_deltas(state, deltas, scale=min(len(exchanges), 3))
                 if result["mood"]:
                     new.mood = result["mood"]
                 if result["tension_set"]:

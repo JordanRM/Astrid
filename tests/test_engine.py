@@ -154,7 +154,9 @@ def test_concurrent_messages_are_serialized(db_url):
     assert roles == ["user", "assistant", "user", "assistant"]   # not interleaved
 
 
-def test_queued_exchanges_are_judged_together_in_one_call(db_url):
+def test_queued_exchanges_are_judged_together_in_one_call(db_url, monkeypatch):
+    from astrid import bond
+    monkeypatch.setattr(bond, "gate", lambda deltas, plan: deltas)       # the day's allowance has its own tests
     async def go():
         db, llm, a = setup(db_url, lambda: 1_800_000_000.0)
         await db.migrate()
@@ -230,3 +232,19 @@ def test_failed_appraisal_logs_what_the_model_said(db_url, caplog):
         asyncio.run(go())
     text = caplog.text
     assert "appraising 1 exchange" in text and "appraisal skipped" in text and "weather" in text
+
+
+def test_an_appraisal_can_only_add_what_the_days_allowance_lets_through(db_url):
+    async def go():
+        db, llm, a = setup(db_url, lambda: 1_800_000_000.0)
+        await db.migrate()
+        await db.add_message(1, "user", "u", 1_800_000_000.0)
+        await db.add_message(1, "assistant", "a", 1_800_000_000.5)
+        llm.script("r1", json.dumps({"deltas": {"affection": 0.5, "trust": 1.5}, "mood": "warm", "note": "x"}))
+        await a.queue_appraisal(1, "u", "a")
+        st, plan = await db.get_state(), await db.get_setting("bond_plan")
+        await db.close()
+        return st, plan
+    st, plan = asyncio.run(go())
+    assert plan and '"chem"' in plan and '"spent"' in plan                       # the day's plan was rolled and kept
+    assert st.values["affection"] <= BASELINE["affection"] + 0.5 and st.values["trust"] <= BASELINE["trust"] + 1.5

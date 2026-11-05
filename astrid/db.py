@@ -369,4 +369,4 @@ class Database:
         await self.execute("truncate astrid.messages, astrid.state_history, astrid.opinions, astrid.thoughts, astrid.memories, astrid.profile_facts restart identity")
         fresh = State(dict(BASELINE), "neutral", None, None, now)
         await self.save_state(fresh, now, "reset", {}, "fresh start")
-        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen', 'rolling_summary', 'episode_through', 'consolidated_on', 'outreach_tide', 'outreach_log', 'last_outreach')")
+        await self.execute("delete from astrid.settings where key in ('wander_next', 'wander_heat_seen', 'rolling_summary', 'episode_through', 'consolidated_on', 'outreach_tide', 'outreach_log', 'last_outreach', 'bond_plan')")
