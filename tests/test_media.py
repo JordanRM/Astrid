@@ -235,7 +235,9 @@ def test_test_mode_always_offers_a_stocked_link_in_a_heated_moment(db_url):
     assert got and cold is None
 
 
-def test_her_note_keeps_the_reason_private_and_speaks_to_him_as_you():
-    n = media.offer_note({"url": "https://goodsite.com/a", "owner": "his", "why": "he likes it slow"})
-    assert "never quote or explain" in n and "as \"you\"" in n and "Don't describe the video" in n
-    assert "https://goodsite.com/a" in n
+def test_her_note_lets_her_explain_in_her_own_words_but_not_claim_to_have_watched():
+    n = media.offer_note({"url": "https://goodsite.com/a", "owner": "hers", "why": "she likes the pacing", "title": "slow couple art", "snippet": "adults"})
+    assert "own words" in n and "never copied" in n and "as \"you\"" in n
+    assert "slow couple art" in n and "You haven't watched it" in n and "https://goodsite.com/a" in n
+    assert "what draws you to it" in n
+    assert "know he likes" in media.offer_note({"url": "https://x.com/a", "owner": "his"})

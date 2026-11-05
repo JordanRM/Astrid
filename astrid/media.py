@@ -94,16 +94,18 @@ def offer_chance(state, boost: float = 1.0) -> float:
 
 def offer_note(row: dict) -> str:
     own = {
-        "his": "It fits something he's told you he likes.",
-        "hers": "It's something you like yourself, and he may not know that about you yet. If it fits, say so and ask what he thinks.",
+        "his": "It fits something he's told you he likes, so it's natural to say you know he likes that.",
+        "hers": "It's something you like yourself, and he may not know that about you yet. Tell him you like it and, in your own words, what draws you to it, then ask what he thinks.",
         "both": "It's something you think you'd both like.",
     }.get(row.get("owner"), "")
-    why = row.get("why")
+    seen = " | ".join(x for x in (row.get("title"), row.get("snippet")) if x and x != "added by hand")
     return (f"You've got a link you want to send him right now: {row['url']}. {own} "
-            + (f"(Background for you only, never quote or explain it: {why}.) " if why else "")
-            + "Put the link on its own line with a few words of your own around it, talking to him as \"you\", never about him as \"he\" "
-            "(\"like this\", \"watch this\", \"this made me think of you\"). Don't describe the video or say why you picked it. Then carry on "
-            "with what you're doing. You haven't watched it yourself; you found it. Share only this link, never any other address.")
+            + (f"What you can see of it: {seen}. " if seen else "")
+            + (f"Why you picked it (your own thought, put in your own words, never copied): {row['why']}. " if row.get("why") else "")
+            + "Put the link on its own line with something natural around it, to him as \"you\", never about him as \"he\": a few words, or "
+            "a line or two on why you want him to see it, whatever fits the moment. You can talk about what the title and description show. "
+            "You haven't watched it, so don't claim scenes, moments, timestamps or how it made you feel while watching. "
+            "Share only this link, never any other address.")
 
 
 class Scout:
