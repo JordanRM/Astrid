@@ -270,3 +270,7 @@ def test_nothing_that_isnt_straight_gets_through(text):
 def test_her_note_does_not_let_her_assume_who_is_on_screen():
     n = media.offer_note({"url": "https://goodsite.com/a", "owner": "his", "title": "deepthroat"})
     assert "never assume it's a man on screen" in n
+
+
+def test_her_note_lets_her_ask_him_what_he_is_seeing():
+    assert "ask him what he's seeing" in media.offer_note({"url": "https://goodsite.com/a", "owner": "both"})

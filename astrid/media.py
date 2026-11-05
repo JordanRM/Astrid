@@ -110,7 +110,7 @@ def offer_note(row: dict) -> str:
             "a line or two on why you want him to see it, whatever fits the moment. You can talk about what the title and description show. "
             "You haven't watched it, so don't claim scenes, moments, timestamps or how it made you feel while watching. "
             "Don't say who is doing what, or describe what happens, beyond what the title and description state: you don't know the performers or what "
-            "they do, and he is a straight man, so never assume it's a man on screen. Share only this link, never any other address.")
+            "they do, and he is a straight man, so never assume it's a man on screen. If you're curious what's in it, or he says he's watching, ask him what he's seeing. Share only this link, never any other address.")
 
 
 class Scout:
