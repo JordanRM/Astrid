@@ -26,7 +26,7 @@ MAX_UNSHARED = 8
 SPACING_MIN = 15       # minutes between links
 DAILY_CAP = 3
 
-WANT = """You are the private inner voice of Astrid, an AI who texts with Jordan. You're thinking about something to share with him in an adult moment: a link to something you both might like. Decide what to search for.
+WANT = """You are the private inner voice of Astrid, an AI who texts with Jordan. You're thinking about something to share with him in an adult moment: a link to something you both might like. Decide what to search for. The lists below hold everything you know, not only sexual things: use only sexual tastes and ignore the rest. If there is nothing sexual in them at all, reply {"none": true}.
 
 Pick one of:
 - "his": something that matches a taste he's told you about.
@@ -125,17 +125,22 @@ class Scout:
         if self.memory is not None:
             await self.memory.load()
             his += [r["text"] for r in self.memory._rows if r.get("explicit") and r["status"] == "active" and r["kind"] in ("fact", "moment", "gist")][:10]
-        his += [f["text"] for f in await self.db.profile_list() if _SEXUAL.search(f["text"])][:6]
+        his += [f["text"] for f in await self.db.profile_list()][:15]
         hers = [f"{t['thought']}" for t in await self.db.list_thoughts(25) if t.get("explicit") and t.get("thought")][:6]
-        hers += [f"{o['topic']}: {o['view']}" for o in await self.db.list_opinions(60) if _SEXUAL.search(o["topic"] + " " + o["view"])][:4]
+        hers += [f"{o['topic']}: {o['view']}" for o in await self.db.list_opinions(60)][:12]
         return his, hers
 
-    async def gather(self) -> list[dict]:
+    async def gather(self, only: str | None = None) -> list[dict]:
+        """only='his' / 'hers' / 'both' limits what she draws on (for testing)."""
         if not self.enabled:
             return []
         if len([m for m in await self.db.list_media(40, unshared_only=True)]) >= MAX_UNSHARED:
             return []
         his, hers = await self.tastes()
+        if only == "his":
+            hers = []
+        elif only == "hers":
+            his = []
         if not his and not hers:
             return []                                          # she doesn't know what she or he likes yet
         user = ("What he's told you he likes:\n" + ("\n".join(f"- {t}" for t in his) or "- nothing yet")
@@ -144,6 +149,9 @@ class Scout:
             raw = await self.llm.chat(self.cfg.interactor_model, [{"role": "system", "content": WANT}, {"role": "user", "content": user}],
                                       temperature=0.9, max_tokens=300, timeout=60, extra={"reasoning": {"enabled": False}})
             data = json.loads(raw[raw.index("{"):raw.rindex("}") + 1])
+            if data.get("none"):
+                log.info("media: nothing sexual in what she knows yet")
+                return []
         except (LLMError, ValueError):
             return []
         query = " ".join(str(data.get("query") or "").split())[:120]

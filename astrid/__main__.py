@@ -30,7 +30,7 @@ USAGE = """usage: python -m astrid [command]
   opinions list the views she has formed, with reasons and changes of mind
   state    show her mood and numbers; set them for testing:  state preset heated  |  state set arousal=8 trust=7
   thoughts list what she's read and thought about on her own time
-  media    links she may share in explicit moments: media | gather | clear | add <url> his|hers|both (needs MEDIA_DOMAINS in .env)
+  media    links she may share in explicit moments: media | gather [his|hers|both] | clear | add <url> his|hers|both (needs MEDIA_DOMAINS in .env)
   wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire, heat)
   memories list what she remembers, strongest first; or search by meaning:  memories "his brother"
   profile  show what she knows about you; change it:  profile set job="..."  |  profile remove job
@@ -238,7 +238,7 @@ def main() -> int:
             elif sub == "gather":
                 llm = OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url)
                 memory = Memory(cfg, db, llm, make_embedder(cfg.embed_model))
-                got = await Scout(cfg, db, llm, Brave(cfg.brave_api_key), memory).gather()
+                got = await Scout(cfg, db, llm, Brave(cfg.brave_api_key), memory).gather(sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] in ("his", "hers", "both") else None)
                 if got:
                     print(f"she searched for: {got[0]['query']!r} ({got[0]['owner']})")
                 print(f"kept {len(got)} link(s)" if got else "nothing kept (she may not know what she likes yet, or nothing passed the filter; see the log lines above)")

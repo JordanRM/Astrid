@@ -241,3 +241,22 @@ def test_her_note_lets_her_explain_in_her_own_words_but_not_claim_to_have_watche
     assert "slow couple art" in n and "You haven't watched it" in n and "https://goodsite.com/a" in n
     assert "what draws you to it" in n
     assert "know he likes" in media.offer_note({"url": "https://x.com/a", "owner": "his"})
+
+
+def test_she_recognises_tastes_without_a_keyword_and_stops_when_there_is_nothing_sexual(db_url):
+    async def go():
+        db, sc = scout(db_url, [{"url": "https://goodsite.com/a", "title": "slow art", "snippet": ""}])
+        await db.migrate()
+        await db.profile_put("job", "works in identity and access management", 5, NOW)
+        await db.profile_put("likes", "loves being deepthroated slowly", 6, NOW)
+        got = await sc.gather()
+        his_only = await sc.gather("hers")                       # drew on nothing of his, nothing of hers: no search
+        await db.close()
+        db2, sc2 = scout(db_url, reply=json.dumps({"none": True}))
+        await db2.migrate()
+        await db2.profile_put("job", "works in identity and access management", 5, NOW)
+        nothing = await sc2.gather()
+        await db2.close()
+        return got, his_only, nothing, sc2.brave.queries
+    got, hers_only, nothing, queried = run(go())
+    assert got and hers_only == [] and nothing == [] and queried == []
