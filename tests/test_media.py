@@ -210,3 +210,11 @@ def test_formatting_her_text_leaves_a_link_untouched():
     out = texting.normalize("Look At This\nhttps://goodsite.com/Watch?v=AbC123\nTHEN tell me")
     assert "https://goodsite.com/Watch?v=AbC123" in out and out.startswith("look at this")
     assert texting.normalize("one // two") == "one\n\ntwo"
+
+
+def test_front_pages_searches_and_listings_are_not_links_to_share():
+    ok = ["https://goodsite.com/watch?v=AbC123", "https://goodsite.com/video/12345/slow-one", "https://other.net/clip/abc"]
+    no = ["https://goodsite.com", "https://goodsite.com/", "https://goodsite.com/results?search_query=slow",
+          "https://goodsite.com/search/slow", "https://goodsite.com/channel/xyz", "https://goodsite.com/tags/slow", "https://goodsite.com/?q=slow"]
+    rows = [{"url": u, "title": "slow couple art", "snippet": ""} for u in ok + no]
+    assert [r["url"] for r in media.clean_results(rows, DOMAINS)] == ok

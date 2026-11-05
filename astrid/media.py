@@ -52,9 +52,19 @@ def allowed(url: str, domains) -> bool:
     return bool(host) and any(host == d or host.endswith("." + d) for d in domains)
 
 
+_LISTING = re.compile(r"/(?:search|results|tags?|categor(?:y|ies)|channels?|users?|playlists?|feed|trending|explore|browse)(?:/|\?|$)|[?&](?:q|query|search_query|s|k)=", re.I)
+
+
+def is_page(url: str) -> bool:
+    """A specific page, not a site's front page, search results or a listing (those change and can show anything)."""
+    u = urlparse(url)
+    return bool(u.path.strip("/")) and not _LISTING.search(u.path + ("?" + u.query if u.query else ""))
+
+
 def clean_results(results: list[dict], domains) -> list[dict]:
-    """Only pages on allowed sites whose address, title and snippet pass the filter."""
-    return [r for r in results if allowed(r["url"], domains) and not unsafe(" ".join((r.get("title") or "", r.get("snippet") or "", r["url"])))]
+    """Only specific pages on allowed sites whose address, title and snippet pass the filter."""
+    return [r for r in results if allowed(r["url"], domains) and is_page(r["url"])
+            and not unsafe(" ".join((r.get("title") or "", r.get("snippet") or "", r["url"])))]
 
 
 def links_in(text: str) -> list[str]:
