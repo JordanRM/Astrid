@@ -354,3 +354,64 @@ def test_a_thought_she_already_shared_in_a_text_is_not_retold_when_he_answers(db
         return asked, row["surfaced"]
     asked, surfaced = run(go())
     assert "you already told him about this yourself" in asked and surfaced == 1
+
+
+def test_a_thin_answer_or_a_busy_for_now_answer_changes_how_soon_she_tries_again(db_url):
+    import json as _json
+    async def go():
+        out = {}
+        async def case(name, replies, texted_ago, earlier=()):
+            e = await Env(db_url, at(15)).start(user_ago=None, memory=False)
+            await e.db.execute("truncate astrid.messages restart identity")
+            loc = datetime.fromtimestamp(e.now, TZ)
+            rows = [{"at": e.now - ago, "reason": "miss"} for ago in earlier] + [{"at": e.now - texted_ago, "reason": "miss"}]
+            await e.db.set_setting("outreach_log", _json.dumps(rows))
+            await e.db.add_message(1, "user", "hey", e.now - 40 * H)                       # he has written before
+            for at_, text in [(r["at"] + 20, "thinking of you") for r in rows]:
+                await e.db.add_message(1, "assistant", text, at_)
+            for ago, text in replies:
+                await e.db.add_message(1, "user", text, e.now - ago)
+            last = e.now - replies[-1][0] if replies else e.now - 40 * H
+            out[name] = await e.o._gate(e.now, loc, last)
+            await e.db.close()
+        await case("thin_soon", [(2 * H, "k")], 2.2 * H)
+        await case("thin_later", [(5.5 * H, "k")], 6.5 * H)
+        await case("busy_soon", [(2 * H, "busy rn, talk later")], 2.2 * H)
+        await case("busy_later", [(5 * H, "busy rn, talk later")], 5.2 * H)
+        await case("engaged", [(2 * H, "oh that's funny, my day was a mess, long story, work stuff and then the car")], 2.2 * H)
+        return out
+    r = run(go())
+    assert r["thin_soon"] and "short" in r["thin_soon"]
+    assert r["thin_later"] is None                                    # a few hours on she can try again
+    assert r["busy_soon"] and "busy" in r["busy_soon"] and r["busy_later"] is None
+    assert r["engaged"] is None
+
+
+def test_repeated_thin_answers_stretch_the_wait_and_a_busy_one_gets_a_gentle_nudge_not_a_guilt_trip(db_url):
+    import json as _json
+    async def go():
+        e = await Env(db_url, at(15)).start(user_ago=None, memory=False)
+        loc = datetime.fromtimestamp(e.now, TZ)
+        await e.db.add_message(1, "user", "hey", e.now - 80 * H)
+        # two texts in a row that each got a one-word answer, the latest 8 hours ago
+        rows = [{"at": e.now - 30 * H, "reason": "miss"}, {"at": e.now - 8 * H, "reason": "miss"}]
+        await e.db.set_setting("outreach_log", _json.dumps(rows))
+        for r in rows:
+            await e.db.add_message(1, "assistant", "thinking of you", r["at"] + 20)
+            await e.db.add_message(1, "user", "k", r["at"] + 300)
+        twice = await e.o._gate(e.now, loc, e.now - 8 * H + 300)                      # 8h is plenty after one, not after two
+        await e.db.close()
+        e2 = await Env(db_url, at(15)).start(user_ago=None, memory=False)
+        await e2.db.execute("truncate astrid.messages restart identity")
+        await e2.db.add_message(1, "user", "hey", e2.now - 40 * H)
+        await e2.db.set_setting("outreach_log", _json.dumps([{"at": e2.now - 6 * H, "reason": "miss"}]))
+        await e2.db.add_message(1, "assistant", "thinking of you", e2.now - 6 * H + 20)
+        await e2.db.add_message(1, "user", "busy today, talk later", e2.now - 6 * H + 300)
+        e2.llm.script("euryale", "no rush. hope the day lets up")
+        await e2.o.reach_out(Plan("miss", 1.0, "You miss him."))
+        asked = prompt(e2.llm.calls[0])
+        await e2.db.close()
+        return twice, asked
+    twice, asked = run(go())
+    assert twice and "2 in a row" in twice
+    assert "said he was busy and would get back to you" in asked and "no guilt" in asked

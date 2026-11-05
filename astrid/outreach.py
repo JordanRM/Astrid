@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import logging
 import random
 import time
@@ -30,6 +31,12 @@ MAX_DAILY = 6
 SILENCE_START_H = 3      # she can start to miss him after this many quiet hours
 SILENCE_RAMP_H = 18      # and it's at full pull this much later
 ACTIVE_MINUTES = 25      # she doesn't text into a conversation that's still going: nothing from either of you in this long
+
+
+BUSY = re.compile(r"\b(busy|in a meeting|meeting|can'?t (?:talk|chat|text)|later|ttyl|gotta (?:go|run)|swamped|slammed|driving|at work)\b", re.I)
+THIN_WORDS = 8       # a reply this short, with nothing after it, is "thin"
+THIN_WAITS_H = (5, 14, 36)   # how long she leaves it after one, two, three thin replies in a row
+BUSY_WAIT_H = 4      # he said he's busy and would be back: she gives him a few hours first
 
 
 def quiet_window(local: datetime) -> bool:
@@ -181,6 +188,40 @@ class Outreach:
         return [BASE_P * self.speed * p.urge * (0.3 + self.tide.level) * self._time_factor(p, local, state) for p in plans]
 
     # ----- deciding -----
+    async def _reception(self, chat_id, start: float, end: float | None) -> str:
+        """How he took a text she sent first, judged from what he wrote between it and the next one:
+        none (no answer), busy (he said he's busy or will be back), thin (a word or two and the chat died), or engaged."""
+        msgs = await self.db.messages_after(chat_id, 0, end, 60, since_ts=start)
+        mine = [m["content"] for m in msgs if m["role"] == "user"]
+        if not mine:
+            return "none"
+        words = sum(len(t.split()) for t in mine)
+        if len(mine) <= 3 and words <= 25 and any(BUSY.search(t) for t in mine):
+            return "busy"
+        if len(mine) <= 2 and words <= THIN_WORDS:
+            return "thin"
+        return "engaged"
+
+    async def _cool_off(self, now: float, rows: list[dict]) -> str | None:
+        """Why she leaves it for now after a text that got a thin or "busy, later" answer, or None."""
+        chat_id = await self.db.last_chat_id()
+        if chat_id is None or not rows:
+            return None
+        kinds = []
+        for i in range(len(rows) - 1, max(len(rows) - 4, -1), -1):
+            end = rows[i + 1]["at"] if i + 1 < len(rows) else None
+            kinds.append(await self._reception(chat_id, rows[i]["at"], end))
+            if kinds[-1] != "thin":
+                break
+        since = self._el(now - rows[-1]["at"])
+        if kinds[0] == "busy":
+            return "he said he was busy, giving him a few hours" if since < BUSY_WAIT_H * 3600 * self.rng.uniform(0.8, 1.4) else None
+        if kinds[0] == "thin":
+            n = sum(1 for k in kinds if k == "thin")
+            if since < THIN_WAITS_H[min(n, 3) - 1] * 3600 * self.rng.uniform(0.8, 1.4):
+                return f"his answer was short ({n} in a row), leaving room"
+        return None
+
     async def _gate(self, now: float, local: datetime, last_user: float | None) -> str | None:
         """None if she may reach out at all right now, otherwise why not."""
         if not self.cfg.outreach:
@@ -203,6 +244,9 @@ class Outreach:
                 return "no answer to the last two, waiting"
             if since < 90 * 60 * self.rng.uniform(0.7, 1.5):
                 return "just texted"
+            cool = await self._cool_off(now, rows)
+            if cool:
+                return cool
         return None
 
     async def decide(self, now: float | None = None) -> Plan | None:
@@ -241,6 +285,10 @@ class Outreach:
             f"\nIt's {local.strftime('%A %-I:%M %p')} for him, the middle of the night or very early. He's probably asleep. You don't expect "
             "an answer, so don't ask 'are you up' and don't make it about him replying. Say it and let it sit." if quiet
             else f"\nIt's {local.strftime('%A %-I:%M %p')}.")
+        rows = await self._log()
+        if rows and await self._reception(chat_id, rows[-1]["at"], None) == "busy":
+            note += ("\nLast time you texted, he said he was busy and would get back to you. He hasn't yet. A light, easy nudge is fine, "
+                     "with no guilt and nothing that expects an answer.")
         text = await self.engine.reach_out(chat_id, note, plan.heat, plan.cues)
         if not text:
             return None
