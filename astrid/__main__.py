@@ -286,8 +286,20 @@ def main() -> int:
                 o.tide.for_day(local.date(), min(1.0, 0.6 * eng / 40 + 0.2))
                 why = await o._gate(now, local, await db.last_user_message_at())
                 print(f"quiet hours now: {quiet_window(local)} | today's tide {o.tide.level:.2f} (cap {o.tide.cap()} texts) | right now: {why or 'free to reach out'}")
-                for p in await o.urges(now, decayed(await db.get_state(), now), local, await db.last_user_message_at()):
-                    print(f"  {p.reason}: urge {p.urge:.2f}")
+                state = decayed(await db.get_state(), now)
+                plans = await o.urges(now, state, local, await db.last_user_message_at())
+                chances = o.chances(plans, local, state)
+                for p, c in zip(plans, chances):
+                    print(f"  {p.reason}: urge {p.urge:.2f}, {c * 100:.1f}% at each 5-minute check")
+                if not plans:
+                    print("  nothing on her mind that would make her text (miss needs 12h of silence, follow_up an open loose end 16h+ old)")
+                miss_all = 1.0
+                for c in chances:
+                    miss_all *= 1 - c
+                if why is None and plans and miss_all < 1:
+                    n = 0.693 / -__import__("math").log(miss_all) if miss_all > 0 else 1
+                    print(f"  typical wait before one of these fires: about {n * 5:.0f} minutes ({n * 5 / 60:.1f} hours)" + (f" [test speed x{o.speed:g}]" if o.speed > 1 else ""))
+                print(f"  affection {state.values['affection']:.1f}, security {state.values['security']:.1f}, arousal {state.values['arousal']:.1f}")
             await db.close()
         asyncio.run(go())
         return 0
