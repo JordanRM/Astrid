@@ -229,6 +229,10 @@ class Astrid:
         try:
             return await self.llm.chat(model, messages, **kwargs)
         except LLMError as e:
+            if str(e).startswith("HTTP 4") and "reasoning" in (kwargs.get("extra") or {}):
+                log.info("this model won't take the no-thinking setting; asking the plain way")
+                plain = {k: v for k, v in kwargs["extra"].items() if k != "reasoning"}
+                return await self._chat(model, messages, {**kwargs, "extra": plain})
             if not str(e).startswith("empty"):
                 raise
             log.info("empty completion; retrying with more room")
@@ -240,6 +244,8 @@ class Astrid:
                       max_tokens=self.cfg.heated_max_tokens if heat else self.cfg.max_reply_tokens)
         if self.cfg.provider_sort:
             kwargs["extra"] = {"provider": {"sort": self.cfg.provider_sort}}
+        if not getattr(self.cfg, "reply_reasoning", True):
+            kwargs["extra"] = {**kwargs.get("extra", {}), "reasoning": {"enabled": False}}
         check = (lambda r: critic.hard_violations(r) + heated.slips(r, opener) + (extra(r) if extra else [])) if heat else (
             lambda r: critic.hard_violations(r) + (critic.first_contact_slips(r) if opener == 2 else []) + (extra(r) if extra else []))
         calls = 1

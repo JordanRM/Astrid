@@ -248,3 +248,18 @@ def test_an_appraisal_can_only_add_what_the_days_allowance_lets_through(db_url):
     st, plan = asyncio.run(go())
     assert plan and '"chem"' in plan and '"spent"' in plan                       # the day's plan was rolled and kept
     assert st.values["affection"] <= BASELINE["affection"] + 0.5 and st.values["trust"] <= BASELINE["trust"] + 1.5
+
+
+def test_reply_reasoning_can_be_switched_off_and_falls_back_if_the_model_refuses_the_setting(db_url):
+    from astrid.llm import LLMError
+    async def go():
+        llm, db = FakeLLM(), Database(db_url)
+        a = Astrid(make_cfg(db_url, reply_reasoning=False), db, llm, clock=lambda: 1_800_000_000.0)
+        await db.migrate()
+        llm.script("euryale", LLMError("HTTP 400: unknown parameter"), "ok then")
+        reply = await a.reply(1, "hello")
+        calls = [c for c in llm.calls if c["model"] == "euryale"]
+        await db.close()
+        return reply, [c.get("extra") for c in calls[:2]]
+    reply, extras = asyncio.run(go())
+    assert extras[0]["reasoning"] == {"enabled": False} and "reasoning" not in (extras[1] or {})
