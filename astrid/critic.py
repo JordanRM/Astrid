@@ -35,6 +35,18 @@ _ABSTRACT = re.compile(
 _EXPERIENCE = re.compile(r"\bi(?:'ve| have)?\s+(?!never\b|not\b|haven't\b|didn't\b|can't\b)(?:listened|watched|played|tasted|visited|driven|walked)\b", re.I)
 
 
+# Wordsmith habits: coined sayings, tidy closers, "X isn't Y, it's Z", and made-up personal anecdotes.
+_APHORISM = re.compile(
+    r"that'?s the (?:whole |real |actual |hard |easy |only )?(?:thing|trick|point|line|part|game|catch|difference|secret)\b|"
+    r"\bnobody (?:teaches|tells|warns|talks)\b|\bthe (?:hard|harder|easy|easier|real|only|best|worst) (?:part|half|thing)\b|"
+    r"\b(?:isn'?t|aren'?t|wasn'?t|weren'?t) (?:the |a |an )?[\w' ]{2,25}, (?:it'?s|the \w+ is|that'?s)\b|"
+    r"\bmost people\b[^.]{0,60}\b(?:instead|just|never)\b|\banyone can\b|\bthe people who\b[^.]{0,50}\b(?:usually|always)\b|"
+    r", not (?:a|an|the) \w+\s*$",
+    re.I | re.M,
+)
+_ANECDOTE = re.compile(r"\bi (?:once|cleared|did that too|did the same|went through (?:the same|that)|learned (?:it )?the hard way)\b", re.I)
+
+
 def hard_violations(reply: str) -> list[str]:
     return [why for rx, why in _HARD if rx.search(reply)]
 
@@ -85,6 +97,12 @@ def reply_hints(recent_replies: list[str]) -> list[str]:
 
     if sum(1 for r in recent[-3:] if _EXPERIENCE.search(r)) >= 1:
         hints.append("You implied you personally listened to, watched, played or tasted something, which you can't. Say how you actually know it, or just give your take.")
+
+    if sum(1 for r in recent[-3:] if _APHORISM.search(r)) >= 1:
+        hints.append("You've been coining neat sayings and tidy closing lines. This time say it in plain, ordinary sentences with no punchline or moral.")
+
+    if sum(1 for r in recent[-3:] if _ANECDOTE.search(r)) >= 1:
+        hints.append("You made up a personal anecdote. You don't have a past like that. Share what you've read or what you think instead.")
 
     if _repeated_phrase(recent[-4:]):
         hints.append("You've repeated the same phrasing across recent replies. Use fresh words and say something new.")

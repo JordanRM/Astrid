@@ -623,3 +623,31 @@ def test_notes_are_framed_as_tendencies_and_forget_gets_a_plain_agreement():
     head = persona.profile_block([{"text": "x"}])
     assert "generalizations, not rules" in head and "what he says now beats a note" in head
     assert "forget something or drop it" in persona.RULES
+
+
+# ---------- wordsmith habit, empty replies ----------
+def test_coined_sayings_and_made_up_anecdotes_get_a_hint_but_plain_replies_dont():
+    from astrid import critic
+    wordy = ["agency and an open heart at the same time. that's the trick nobody teaches, and the people who can do it usually learned it the hard way.",
+             "pride's just expecting the ground to hold. the falls aren't the failure, the surprise is",
+             "you landed it on the third try. that's a typing arc, not a tragedy",
+             "i cleared the same bar once and never looked back"]
+    for line in wordy:
+        hints = critic.reply_hints(["hey", line, "ok"])
+        assert any("neat sayings" in h or "anecdote" in h for h in hints), line
+    plain = ["yeah, i think that's right", "i'd push back a little. some people just haven't had it go wrong yet", "what's the review about"]
+    assert not any("neat sayings" in h or "anecdote" in h for h in critic.reply_hints(plain))
+    assert "Don't coin sayings" in __import__("astrid").persona.RULES
+
+
+def test_an_empty_completion_is_retried_with_more_room_instead_of_failing(db_url):
+    from astrid.llm import LLMError
+    async def go():
+        c, db, llm, _ = mk(db_url)
+        await db.migrate()
+        llm.script("euryale", LLMError("empty completion"), "ok, sure")
+        out = await Astrid(c, db, llm, clock=lambda: NOW).reply(1, "hi")
+        await db.close()
+        return out, [x["max_tokens"] for x in llm.calls]
+    out, tokens = run(go())
+    assert out == "ok, sure" and tokens == [600, 1800]

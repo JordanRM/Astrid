@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from . import appraisal, critic, curiosity, examples, heated, opinions, persona, texting
 from .config import Config
+from .llm import LLMError
 from .state import apply_deltas, decayed, length_guidance, render
 
 log = logging.getLogger("astrid.engine")
@@ -139,6 +140,16 @@ class Astrid:
             )
             return reply
 
+    async def _chat(self, model: str, messages: list[dict], kwargs: dict) -> str:
+        """DeepSeek sometimes spends its whole budget thinking and says nothing. Give it more room once rather than failing the reply."""
+        try:
+            return await self.llm.chat(model, messages, **kwargs)
+        except LLMError as e:
+            if not str(e).startswith("empty"):
+                raise
+            log.info("empty completion; retrying with more room")
+            return await self.llm.chat(model, messages, **{**kwargs, "max_tokens": int(kwargs.get("max_tokens", 350)) * 3})
+
     async def _generate(self, messages: list[dict], heat: bool = False, opener: int = 0) -> tuple[str, int]:
         model = (self.cfg.heated_model or self.cfg.interactor_model) if heat else self.cfg.interactor_model
         kwargs = dict(temperature=self.cfg.heated_temperature if heat else self.cfg.temperature,
@@ -147,7 +158,7 @@ class Astrid:
             kwargs["extra"] = {"provider": {"sort": self.cfg.provider_sort}}
         check = (lambda r: critic.hard_violations(r) + heated.slips(r, opener)) if heat else critic.hard_violations
         calls = 1
-        reply = await self.llm.chat(model, messages, **kwargs)
+        reply = await self._chat(model, messages, kwargs)
         problems = check(reply)
         if problems:
             log.info("regenerating reply: %s", "; ".join(problems))
@@ -156,7 +167,7 @@ class Astrid:
                 "message from a real person: no asterisk actions, no refusals, no tags, don't open with 'Hey <name>'."
             )
             calls = 2
-            retry = await self.llm.chat(model, messages + [{"role": "system", "content": fix}], **kwargs)
+            retry = await self._chat(model, messages + [{"role": "system", "content": fix}], kwargs)
             if critic.hard_violations(retry):
                 retry = critic.strip_asterisk_actions(retry) or retry
             reply = retry

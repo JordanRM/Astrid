@@ -23,7 +23,7 @@ class Config:
     history_minutes: int = 120      # she sees everything from roughly the last two hours...
     history_max: int = 100          # ...up to this many messages
     embed_model: str = ""           # empty: BAAI/bge-small-en-v1.5; "hash" forces the simple word-matching fallback
-    max_reply_tokens: int = 350
+    max_reply_tokens: int = 600
     temperature: float = 0.9
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     telegram_api_base: str = "https://api.telegram.org"
