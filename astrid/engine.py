@@ -86,7 +86,7 @@ class Astrid:
             heat = heated.is_heated(state, user_lines)
             # 0: mid-conversation. 1: nothing said yet today. 2: nothing ever said (so no earlier scenes can be claimed either).
             talked_today = any(datetime.fromtimestamp(m.ts, self.tz).date() == local.date() for m in history[:-1])
-            fresh = 0 if talked_today else (1 if len(history) > 1 else 2)
+            fresh = 0 if talked_today else (1 if len(history) > 1 else (2 if getattr(self.cfg, "first_meeting_note", True) else 1))
             has_inner = True
             profile_text, memory_text, summary_text = await self._remember(state, user_lines[-3:] + assistant_lines[-1:], heat, now, local)
             if heat:

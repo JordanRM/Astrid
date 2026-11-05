@@ -11,7 +11,7 @@ from astrid import heated
 from astrid.db import Database
 from astrid.embed import Embedder, HashEmbedder, make_embedder
 from astrid.engine import Astrid
-from astrid.memory import (HAZY_BELOW, Memory, MoodLean, MemoryKeeper, effective_strength, is_hazy, mood_pulls, when_text)
+from astrid.memory import (HAZY_BELOW, Memory, MoodLean, MemoryKeeper, effective_strength, is_hazy, when_text)
 from astrid.state import BASELINE, PRESETS, State
 
 NOW = 1_800_000_000.0
@@ -73,17 +73,11 @@ def test_memories_fade_unless_strong_and_recalling_resets_the_clock():
     assert effective_strength({**old, "importance": 7}, NOW) > effective_strength(old, NOW)
 
 
-def test_when_text_and_mood_pulls():
+def test_when_text_reads_naturally():
     from zoneinfo import ZoneInfo
     tz = ZoneInfo("America/Toronto")
     assert when_text(NOW - 3600, NOW, tz) in ("earlier today", "yesterday")
     assert when_text(NOW - 4 * DAY, NOW, tz) == "4 days ago" and "weeks" in when_text(NOW - 25 * DAY, NOW, tz)
-    st = calm()
-    st.values.update(irritation=8, security=2)
-    neg, pos = mood_pulls(st)
-    assert neg > 0.8 and pos == 0
-    st.values.update(irritation=0, security=8, rapport=8, affection=6)
-    assert mood_pulls(st)[1] > 0.5
 
 
 # ---------- database ----------

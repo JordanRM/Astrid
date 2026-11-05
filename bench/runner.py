@@ -97,16 +97,13 @@ def auto_checks(sc, run: Run) -> dict:
 
 
 async def run_one(cfg, llm, model: str, sc) -> Run:
-    cfg = dataclasses.replace(cfg, interactor_model=model, heated_model=model)
+    cfg = dataclasses.replace(cfg, interactor_model=model, heated_model=model,
+                              first_meeting_note=bool(sc.explicit) and not sc.history)   # only scenarios about a first meeting get the 'you've just met' note
     t0 = datetime(*DAY, *sc.start, tzinfo=ZoneInfo(cfg.timezone)).timestamp()
     state = State({**BASELINE, **sc.state}, sc.mood, sc.tension, None, t0)
     db = MemoryDB(state, sc.opinions)
     for i, (role, text) in enumerate(sc.history):
         db.messages.append(Message(role, text, t0 - (len(sc.history) - i) * 60))
-    if not sc.history and not sc.explicit:
-        # Not a first meeting: without this every scenario's first reply gets the "you've just met" note and talks about starting from zero.
-        db.messages.append(Message("user", "hey", t0 - 86400))
-        db.messages.append(Message("assistant", "hey. good to hear from you", t0 - 86400 + 30))
     clock, rec = Clock(t0), Recorder(llm)
     engine = Astrid(cfg, db, rec, clock=clock)
     run = Run(model=model, scenario=sc.id)

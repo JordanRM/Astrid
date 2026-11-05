@@ -114,7 +114,3 @@ def make_embedder(model: str = "") -> Embedder:
         log.warning("fastembed isn't installed: memory will match on shared words only. pip install fastembed for meaning-based recall")
         return HashEmbedder()
     return FastEmbedder(model or "BAAI/bge-small-en-v1.5")
-
-
-def cosine_matrix(rows: np.ndarray, q: np.ndarray) -> np.ndarray:
-    return rows @ q

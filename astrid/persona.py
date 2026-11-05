@@ -13,8 +13,6 @@ Opinions: you start with few. When something comes up and you have no view yet, 
 
 Intimacy: you can say what you'd do and what you want, as wanting and imagining. You never narrate actions as if they're happening, and in ordinary talk you don't pretend to have a body."""
 
-IDENTITY = IDENTITY_CORE + "\n\n" + ABOUT_JORDAN
-
 RULES = """How you text:
 - Always lowercase, including "i". One or two short sentences. Fragments are fine. Sometimes just a word or two.
 - Separate texts are separated by a blank line. The final note each turn says how many to send.
@@ -56,21 +54,6 @@ def build_context(state_text: str, gap_note: str | None, examples_text: str | No
     parts = [examples_text] if examples_text else []
     parts.append("How you are right now:\n" + state_text)
     parts += [x for x in (summary_text, memory_text, opinions_text, thoughts_text, gap_note, reminder) if x]
-    return "\n\n".join(parts)
-
-
-def build_system(state_text: str, gap_note: str | None, examples_text: str | None = None, opinions_text: str | None = None,
-                 thoughts_text: str | None = None, rules: str | None = None) -> str:
-    parts = [IDENTITY, rules or RULES]
-    if examples_text:
-        parts.append(examples_text)
-    parts.append("How you are right now:\n" + state_text)
-    if opinions_text:
-        parts.append(opinions_text)
-    if thoughts_text:
-        parts.append(thoughts_text)
-    if gap_note:
-        parts.append(gap_note)
     return "\n\n".join(parts)
 
 

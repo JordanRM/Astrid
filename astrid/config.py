@@ -22,6 +22,7 @@ class Config:
     history_limit: int = 24         # the smallest recent window she always sees
     history_minutes: int = 120      # she sees everything from roughly the last two hours...
     history_max: int = 100          # ...up to this many messages
+    first_meeting_note: bool = True  # False only in the bench, for scenarios that aren't about meeting for the first time
     reply_reasoning: bool = True    # REPLY_REASONING=off asks the reply model not to think first (faster, cheaper; test with the bench)
     outreach_speedup: float = 1.0   # testing only: OUTREACH_SPEEDUP=12 makes her waits and silences count 12x faster (1 = real time)
     outreach: bool = True           # she may text first; OUTREACH=off turns it off

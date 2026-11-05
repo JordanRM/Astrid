@@ -81,14 +81,6 @@ def when_text(created_at: float, now: float, tz: ZoneInfo) -> str:
     return f"about {max(2, d // 30)} months ago"
 
 
-def mood_pulls(state) -> tuple[float, float]:
-    """(pull toward bad memories, pull toward good ones), 0..1. Annoyed or insecure drags up old slights; warm, good times."""
-    v = state.values
-    neg = clamp((v["irritation"] - 3) / 5 + (5 - v["security"]) / 10, 0, 1)
-    pos = clamp((v["rapport"] + v["affection"] - 8) / 10, 0, 1)
-    return neg, pos
-
-
 class MoodLean:
     """Which way her memory leans right now: toward old hurts (-1), toward good times (+1), or neither (0).
 

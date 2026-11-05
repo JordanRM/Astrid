@@ -263,3 +263,19 @@ def test_reply_reasoning_can_be_switched_off_and_falls_back_if_the_model_refuses
         return reply, [c.get("extra") for c in calls[:2]]
     reply, extras = asyncio.run(go())
     assert extras[0]["reasoning"] == {"enabled": False} and "reasoning" not in (extras[1] or {})
+
+
+def test_the_first_meeting_note_can_be_left_out_for_the_bench(db_url):
+    async def go():
+        out = []
+        for on in (True, False):
+            llm, db = FakeLLM(), Database(db_url)
+            a = Astrid(make_cfg(db_url, first_meeting_note=on), db, llm, clock=lambda: 1_800_000_000.0)
+            await db.migrate()
+            await db.execute("truncate astrid.messages restart identity")
+            await a.reply(1, "hey")
+            out.append(prompt(llm.calls[-1]))
+            await db.close()
+        return out
+    with_note, without = asyncio.run(go())
+    assert "first time you and Jordan have ever talked" in with_note and "first time you and Jordan have ever talked" not in without
