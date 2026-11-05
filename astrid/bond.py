@@ -7,11 +7,13 @@ so a long good chat tops out instead of running to "in love". Falling out is nev
 from __future__ import annotations
 
 import json
+from datetime import date
 import random
 
 GAINS = ("trust", "rapport", "affection")
 ALLOWANCE = {"trust": 1.2, "rapport": 1.8, "affection": 1.0}  # a typical day, at chemistry 1 and openness 1
 LEFTOVER = 0.03  # share of a gain that still lands once the day's allowance is spent
+FADE_DAYS = 7  # days for the first impression's pull to halve; after a few weeks only how things actually went matters
 CHEMISTRY = ((0.20, 0.6), (0.70, 1.0), (0.92, 1.4), (1.01, 2.0))  # guarded, typical, open, a spark
 
 
@@ -21,6 +23,15 @@ def roll_chemistry(rng: random.Random) -> float:
         if r < limit:
             return value
     return 1.0
+
+
+def chemistry_now(plan: dict, local_date: str) -> float:
+    """The first-meeting roll is only a starting lean: it fades toward neutral as they get to know each other."""
+    try:
+        days = max(0, (date.fromisoformat(local_date) - date.fromisoformat(plan["since"])).days)
+    except (KeyError, ValueError):
+        days = 0
+    return round(1.0 + (plan["chem"] - 1.0) * 0.5 ** (days / FADE_DAYS), 3)
 
 
 def openness(values: dict, tension: bool = False) -> float:
@@ -51,7 +62,7 @@ def gate(deltas: dict, plan: dict) -> dict:
             continue
         if d <= 0:
             continue
-        room = max(0.0, ALLOWANCE[k] * plan["chem"] * plan["open"] - spent.get(k, 0.0))
+        room = max(0.0, ALLOWANCE[k] * plan.get("chem_now", plan["chem"]) * plan["open"] - spent.get(k, 0.0))
         landed = min(d, room) + LEFTOVER * max(0.0, d - room)
         spent[k] = round(spent.get(k, 0.0) + landed, 3)
         out[k] = round(landed, 3)
@@ -64,11 +75,14 @@ async def todays_plan(db, local_date: str, values: dict, tension: bool = False, 
     plan = json.loads(raw) if raw else {}
     if "chem" not in plan:
         plan["chem"] = roll_chemistry(rng)
+        plan["since"] = local_date
+    plan.setdefault("since", local_date)               # a plan saved before the fade existed starts counting today
     if plan.get("day") != local_date:
         plan.update(day=local_date, spent={})
+    plan["chem_now"] = chemistry_now(plan, local_date)
     plan["open"] = openness(values, tension)           # worked out fresh each time, never stored
     return plan
 
 
 async def save_plan(db, plan: dict) -> None:
-    await db.set_setting("bond_plan", json.dumps({k: v for k, v in plan.items() if k != "open"}))
+    await db.set_setting("bond_plan", json.dumps({k: v for k, v in plan.items() if k not in ("open", "chem_now")}))

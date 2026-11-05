@@ -39,3 +39,12 @@ def test_openness_comes_from_how_things_stand_not_from_chance():
 def test_chemistry_is_mostly_average_with_a_few_guarded_and_a_few_quick():
     rolls = [bond.roll_chemistry(random.Random(i)) for i in range(2000)]
     assert 0.6 in rolls and 2.0 in rolls and rolls.count(1.0) > rolls.count(0.6) > rolls.count(2.0)
+
+
+def test_the_first_impression_fades_so_only_how_things_went_matters_later():
+    plan = {"chem": 2.0, "since": "2026-11-05"}
+    assert bond.chemistry_now(plan, "2026-11-05") == 2.0
+    assert 1.4 < bond.chemistry_now(plan, "2026-11-12") < 1.6                   # a week on, half the pull is gone
+    assert bond.chemistry_now(plan, "2026-12-15") < 1.05
+    guarded = {"chem": 0.6, "since": "2026-11-05"}
+    assert bond.chemistry_now(guarded, "2026-12-15") > 0.95                     # a guarded start doesn't hold her back for good
