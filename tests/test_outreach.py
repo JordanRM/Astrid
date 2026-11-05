@@ -409,9 +409,59 @@ def test_repeated_thin_answers_stretch_the_wait_and_a_busy_one_gets_a_gentle_nud
         await e2.db.add_message(1, "user", "busy today, talk later", e2.now - 6 * H + 300)
         e2.llm.script("euryale", "no rush. hope the day lets up")
         await e2.o.reach_out(Plan("miss", 1.0, "You miss him."))
-        asked = prompt(e2.llm.calls[0])
+        asked = prompt(e2.llm.calls[-1])
         await e2.db.close()
         return twice, asked
     twice, asked = run(go())
     assert twice and "2 in a row" in twice
     assert "said he was busy and would get back to you" in asked and "no guilt" in asked
+
+
+def test_how_a_thin_or_missing_answer_lands_depends_on_how_she_already_is():
+    from astrid.outreach import reaction
+    steady = {**BASELINE, "affection": 8, "security": 8.5, "energy": 7, "irritation": 0.5}
+    shaky = {**BASELINE, "affection": 8, "security": 3.5}
+    edgy = {**BASELINE, "affection": 8, "security": 7, "irritation": 3}
+    cool = {**BASELINE, "affection": 1.5, "security": 6}
+    assert abs(reaction(steady, "thin", 1)["security"]) < abs(reaction(shaky, "thin", 1)["security"])      # shaky takes it harder
+    assert "irritation" in reaction(edgy, "thin", 1) and reaction(edgy, "thin", 1)["irritation"] > reaction(edgy, "thin", 1)["security"] * -1
+    assert reaction(shaky, "thin", 1)["security"] < 0 and reaction(shaky, "thin", 1).get("vulnerability", 0) > 0   # hurt, not anger
+    assert abs(reaction(cool, "none", 1)["security"]) < abs(reaction(shaky, "none", 1)["security"])         # caring less, feeling less
+    assert abs(reaction(shaky, "none", 1)["security"]) > abs(reaction(shaky, "thin", 1)["security"])        # silence stings more than a short answer
+    assert abs(reaction(shaky, "thin", 3)["security"]) > abs(reaction(shaky, "thin", 1)["security"])       # and it builds
+
+
+def test_a_thin_answer_or_none_at_all_marks_her_mood_once_and_the_model_does_the_reading(db_url):
+    import json as _json
+    async def go():
+        e = await Env(db_url, at(15), affection=8, security=4).start(user_ago=None, memory=False)
+        await e.db.execute("truncate astrid.messages restart identity")
+        await e.db.add_message(1, "user", "hey", e.now - 40 * H)
+        await e.db.set_setting("outreach_log", _json.dumps([{"at": e.now - 3 * H, "reason": "miss"}]))
+        await e.db.add_message(1, "assistant", "thinking of you", e.now - 3 * H + 20)
+        await e.db.add_message(1, "user", "sure, whatever works", e.now - 3 * H + 300)
+        e.llm.script("euryale", "brief")                                   # the model reads it as a brief answer
+        before = (await e.db.get_state()).values["security"]
+        await e.o._react(e.now)
+        mid = (await e.db.get_state()).values["security"]
+        await e.o._react(e.now)                                            # again: it was already felt
+        again = (await e.db.get_state()).values["security"]
+        log = _json.loads(await e.db.get_setting("outreach_log"))
+        # no answer at all, long enough to notice
+        await e.db.execute("truncate astrid.messages restart identity")
+        await e.db.add_message(1, "user", "hey", e.now - 40 * H)
+        await e.db.set_setting("outreach_log", _json.dumps([{"at": e.now - 8 * H, "reason": "miss"}]))
+        await e.o._react(e.now)
+        ignored = (await e.db.get_state()).values["security"]
+        await e.db.close()
+        return before, mid, again, log, ignored
+    before, mid, again, log, ignored = run(go())
+    assert mid < before and again == mid and log[0]["how"] == "thin" and log[0]["felt"] == "thin"
+    assert ignored < mid
+
+
+def test_the_word_list_knows_cant_talk_and_ill_text_you_in_a_bit():
+    from astrid.outreach import classify
+    for t in ("can't talk right now", "i'll text you in a bit", "ill text you later", "slammed, talk soon", "in a meeting"):
+        assert classify([t]) == "busy", t
+    assert classify(["k"]) == "thin" and classify(["ha yeah that was a mess, tell me about yours, i've got time"]) == "engaged"

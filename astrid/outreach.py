@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .state import decayed
+from .state import apply_deltas, decayed
 
 log = logging.getLogger("astrid.outreach")
 
@@ -33,10 +33,35 @@ SILENCE_RAMP_H = 18      # and it's at full pull this much later
 ACTIVE_MINUTES = 25      # she doesn't text into a conversation that's still going: nothing from either of you in this long
 
 
-BUSY = re.compile(r"\b(busy|in a meeting|meeting|can'?t (?:talk|chat|text)|later|ttyl|gotta (?:go|run)|swamped|slammed|driving|at work)\b", re.I)
+BUSY = re.compile(r"\b(busy|in a meeting|meeting|can'?t (?:talk|chat|text)|can'?t (?:right now|rn)|later|in a bit|in a while|in a few|ttyl|"
+                  r"talk soon|gotta (?:go|run)|swamped|slammed|driving|at work|after (?:work|dinner)|when i'?m (?:free|home|done))\b", re.I)
 THIN_WORDS = 8       # a reply this short, with nothing after it, is "thin"
 THIN_WAITS_H = (5, 14, 36)   # how long she leaves it after one, two, three thin replies in a row
 BUSY_WAIT_H = 4      # he said he's busy and would be back: she gives him a few hours first
+
+
+def classify(mine: list[str]) -> str:
+    """The word-list reading of how he answered, used when the model can't be asked."""
+    words = sum(len(t.split()) for t in mine)
+    if len(mine) <= 3 and words <= 25 and any(BUSY.search(t) for t in mine):
+        return "busy"
+    if len(mine) <= 2 and words <= THIN_WORDS:
+        return "thin"
+    return "engaged"
+
+
+def reaction(values: dict, kind: str, n: int) -> dict:
+    """What being met with a thin answer ('thin') or no answer ('none') does to her, as changes to her state. It depends on how she
+    already is: the more she cares the more it lands, a shaky or already prickly mood takes it harder, a steady one shrugs it off,
+    and it comes out as hurt or as annoyance depending on where she's at. `n` is how many in a row."""
+    aff, sec, irr, en = (values.get(k, d) for k, d in (("affection", 1.0), ("security", 6.0), ("irritation", 1.0), ("energy", 6.0)))
+    k = {"thin": 0.25, "none": 0.45}[kind] * (0.4 + aff / 8) * (1.5 if sec < 5 else 1.0) * (0.6 if sec >= 7.5 and en >= 6 and irr < 2 else 1.0)
+    k *= 1 + 0.3 * (max(1, n) - 1)
+    if irr >= 2:                                   # already on edge: it comes out as annoyance
+        return {"irritation": round(k * 0.9, 2), "security": round(-k * 0.3, 2)}
+    if sec < 6.5:                                  # unsure of him already: it stings
+        return {"security": round(-k, 2), "vulnerability": round(k * 0.3, 2), "irritation": round(k * 0.2, 2)}
+    return {"security": round(-k * 0.4, 2), "irritation": round(k * 0.3, 2)}   # steady: a small pang
 
 
 def quiet_window(local: datetime) -> bool:
@@ -188,19 +213,66 @@ class Outreach:
         return [BASE_P * self.speed * p.urge * (0.3 + self.tide.level) * self._time_factor(p, local, state) for p in plans]
 
     # ----- deciding -----
-    async def _reception(self, chat_id, start: float, end: float | None) -> str:
-        """How he took a text she sent first, judged from what he wrote between it and the next one:
-        none (no answer), busy (he said he's busy or will be back), thin (a word or two and the chat died), or engaged."""
-        msgs = await self.db.messages_after(chat_id, 0, end, 60, since_ts=start)
+    async def _judge(self, hers: str, mine: list[str]) -> str | None:
+        """Ask the fast model how he took her text: busy (said he's busy or will be back), brief (a word or two, no real answer), or engaged."""
+        msgs = [{"role": "system", "content": "You read a short text exchange. She texted first. Say how he answered, with ONE word: "
+                 "busy (he said he's busy, can't talk, or will get back to her later), brief (a word or two, no real engagement, the chat "
+                 "went nowhere), or engaged (he actually talked)."},
+                {"role": "user", "content": f"Her text: {hers}\nHis replies:\n" + "\n".join(f"- {t}" for t in mine[-6:])}]
+        for extra in ({"reasoning": {"enabled": False}}, None):
+            try:
+                out = (await self.engine.llm.chat(self.cfg.interactor_model, msgs, temperature=0, max_tokens=12, timeout=30, extra=extra)).strip().lower()
+            except Exception:
+                continue
+            for word, kind in (("busy", "busy"), ("brief", "thin"), ("engaged", "engaged")):
+                if out.startswith(word):
+                    return kind
+        return None
+
+    async def _how(self, chat_id, rows: list[dict], i: int, now: float) -> str:
+        """How he took the text in rows[i]: none (no answer), busy, thin (a word or two and the chat died), or engaged. Once the chat has
+        gone quiet the model's reading is kept with the text, so it's judged once."""
+        row = rows[i]
+        if row.get("how"):
+            return row["how"]
+        end = rows[i + 1]["at"] if i + 1 < len(rows) else None
+        msgs = await self.db.messages_after(chat_id, 0, end, 60, since_ts=row["at"])
         mine = [m["content"] for m in msgs if m["role"] == "user"]
         if not mine:
             return "none"
-        words = sum(len(t.split()) for t in mine)
-        if len(mine) <= 3 and words <= 25 and any(BUSY.search(t) for t in mine):
-            return "busy"
-        if len(mine) <= 2 and words <= THIN_WORDS:
-            return "thin"
-        return "engaged"
+        kind = classify(mine)
+        if self._el(now - max(float(m["ts"]) for m in msgs)) < 45 * 60:
+            return kind                                   # still going: don't settle it yet
+        hers = next((m["content"] for m in msgs if m["role"] == "assistant"), "")
+        kind = await self._judge(hers, mine) or kind
+        row["how"] = kind
+        await self.db.set_setting("outreach_log", json.dumps(rows))
+        return kind
+
+    async def _react(self, now: float) -> None:
+        """Once it's clear how her last text landed, a thin answer or none at all leaves a mark on her mood (once)."""
+        rows = await self._log()
+        chat_id = await self.db.last_chat_id()
+        if not rows or chat_id is None or rows[-1].get("felt"):
+            return
+        kind = await self._how(chat_id, rows, len(rows) - 1, now)
+        if kind == "none" and self._el(now - rows[-1]["at"]) < 6 * 3600:
+            return
+        if kind in ("thin", "none") and (kind == "none" or rows[-1].get("how")):
+            n = 1
+            for r in reversed(rows[:-1]):
+                if r.get("felt") in ("thin", "none"):
+                    n += 1
+                else:
+                    break
+            state = decayed(await self.db.get_state(), now)
+            new, applied = apply_deltas(state, reaction(state.values, kind, n))
+            await self.db.save_state(new, now, "outreach", applied, f"my text got {'no answer' if kind == 'none' else 'a thin answer'}")
+            log.info("her text got %s answer (%d in a row): %s", "no" if kind == "none" else "a thin", n, applied)
+        elif kind not in ("engaged", "busy") or not rows[-1].get("how"):
+            return
+        rows[-1]["felt"] = kind
+        await self.db.set_setting("outreach_log", json.dumps(rows))
 
     async def _cool_off(self, now: float, rows: list[dict]) -> str | None:
         """Why she leaves it for now after a text that got a thin or "busy, later" answer, or None."""
@@ -209,8 +281,7 @@ class Outreach:
             return None
         kinds = []
         for i in range(len(rows) - 1, max(len(rows) - 4, -1), -1):
-            end = rows[i + 1]["at"] if i + 1 < len(rows) else None
-            kinds.append(await self._reception(chat_id, rows[i]["at"], end))
+            kinds.append(await self._how(chat_id, rows, i, now))
             if kinds[-1] != "thin":
                 break
         since = self._el(now - rows[-1]["at"])
@@ -286,7 +357,7 @@ class Outreach:
             "an answer, so don't ask 'are you up' and don't make it about him replying. Say it and let it sit." if quiet
             else f"\nIt's {local.strftime('%A %-I:%M %p')}.")
         rows = await self._log()
-        if rows and await self._reception(chat_id, rows[-1]["at"], None) == "busy":
+        if rows and await self._how(chat_id, rows, len(rows) - 1, now) == "busy":
             note += ("\nLast time you texted, he said he was busy and would get back to you. He hasn't yet. A light, easy nudge is fine, "
                      "with no guilt and nothing that expects an answer.")
         text = await self.engine.reach_out(chat_id, note, plan.heat, plan.cues)
@@ -317,6 +388,7 @@ class Outreach:
     }
 
     async def tick(self) -> str | None:
+        await self._react(self.now())
         plan = await self.decide()
         return await self.reach_out(plan) if plan else None
 
