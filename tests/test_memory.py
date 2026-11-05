@@ -695,3 +695,26 @@ def test_the_time_comes_with_the_part_of_the_day():
     from astrid.state import day_part, render
     assert [day_part(h) for h in (3, 9, 14, 21, 23)] == ["the middle of the night", "morning", "afternoon", "evening", "late at night"]
     assert "9:18 PM Eastern time (evening)" in render(State(dict(BASELINE), "x", None, None, 0), datetime(2026, 11, 4, 21, 18))
+
+
+def test_she_cant_say_its_late_in_the_evening_or_nag_and_the_first_meeting_acknowledges_what_this_is(db_url):
+    from astrid import critic, persona
+    assert critic.time_slips("hey. you're up late for a wednesday.", 21) and critic.time_slips("it's so late", 14)
+    assert not critic.time_slips("hey. you're up late for a wednesday.", 23) and not critic.time_slips("hey. how was the day", 21)
+    assert any("nag" in h or "bed" in h for h in critic.reply_hints(["then chill and don't make me nag you at 10:31", "ok"]))
+    assert "Don't manufacture friction" in persona.RULES
+    async def go():
+        c, db, llm, _ = mk(db_url)
+        await db.migrate()
+        llm.script("euryale", "hey. you're up late for a wednesday.", "hey. so this is how it starts")
+        out = await Astrid(c, db, llm, clock=lambda: at_evening()).reply(1, "hey")
+        p = prompt(llm.calls[0])
+        await db.close()
+        return out, p
+    out, p = run(go())
+    assert out == "hey. so this is how it starts"                                           # the 'late' slip was rewritten
+    assert "that's a real moment" in p and "no interview" in p
+
+
+def at_evening():
+    return datetime(2026, 11, 4, 21, 35, tzinfo=__import__("zoneinfo").ZoneInfo("America/Toronto")).timestamp()

@@ -56,7 +56,7 @@ _PRIOR_HISTORY = re.compile(
 )
 
 
-_NAG = re.compile(r"\bgo to (?:bed|sleep)\b|\bget (?:some )?sleep\b|\bget to bed\b|\bbed (?:time|early)\b|\bsleep soon\b", re.I)
+_NAG = re.compile(r"\bnag(?:ging)? you\b|\bdon'?t make me nag\b|\bgo to (?:bed|sleep)\b|\bget (?:some )?sleep\b|\bget to bed\b|\bbed (?:time|early)\b|\bsleep soon\b", re.I)
 _CLAIMED_READING = re.compile(
     r"\b(?:i was|i've been|i have been|been|i just|just been) (?:reading|looking into|digging into|researching|watching)\b|\breading about\b|"
     r"\b(?:i )?(?:read|came across|stumbled on|fell down) (?:a |an |the |about |into )", re.I)
@@ -65,6 +65,14 @@ _CLAIMED_READING = re.compile(
 def claimed_reading(reply: str) -> list[str]:
     """She hasn't read anything on her own recently, so she can't claim to have."""
     return ["claimed to have been reading or looking into something, but you haven't read anything on your own recently"] if _CLAIMED_READING.search(reply or "") else []
+
+
+_LATE = re.compile(r"\b(?:up|here|awake|out) (?:so |this |pretty |kinda |a little )?late\b|\bit'?s (?:so |pretty |getting )?late\b|\bstaying up\b|\bpast (?:your|my) bedtime\b", re.I)
+
+
+def time_slips(reply: str, hour: int) -> list[str]:
+    """Saying it's late when it's the daytime or early evening."""
+    return ["said it's late, but it's not (it's " + ("morning" if hour < 12 else "afternoon" if hour < 17 else "evening") + ")"] if 5 <= hour < 22 and _LATE.search(reply or "") else []
 
 
 def first_contact_slips(reply: str) -> list[str]:
