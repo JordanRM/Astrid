@@ -33,8 +33,8 @@ def extraction(*items, profile=(), forget=(), resolved=()):
     return json.dumps({"memories": list(items), "profile": list(profile), "forget": list(forget), "resolved": list(resolved)})
 
 
-def item(text, importance=4, kind="fact", gist="something he told me", emotion="curious", valence=0.2, explicit=False):
-    return {"kind": kind, "text": text, "gist": gist, "importance": importance, "emotion": emotion, "valence": valence, "explicit": explicit}
+def item(text, importance=4, kind="fact", gist="something he told me", emotion="curious", valence=0.2, explicit=False, replaces=()):
+    return {"replaces": list(replaces), "kind": kind, "text": text, "gist": gist, "importance": importance, "emotion": emotion, "valence": valence, "explicit": explicit}
 
 
 def run(coro):
@@ -578,3 +578,48 @@ def test_a_model_that_cant_load_falls_back_to_word_matching(db_url):
         await db.close()
         return name
     assert run(go()) == "hash-256"
+
+
+def test_a_changed_mind_replaces_the_old_memory_and_the_extractor_sees_what_it_might_change(db_url):
+    async def go():
+        c, db, llm, mem = mk(db_url)
+        await db.migrate()
+        llm.script("r1", extraction(item("he loves cheese, especially sharp cheddar on everything", 4, gist="something about food")))
+        await mem.extract([("i love cheddar", "same")], [], NOW - 120 * DAY)
+        old_id = (await db.load_memories())[0]["id"]
+        seen = {}
+        def reply(messages):
+            seen["body"] = messages[1]["content"]
+            return extraction(item("he used to love cheese and says he can't stand the stuff now", 4, replaces=[f"#{old_id}", "#999"]))
+        llm.script("r1", reply)
+        out = await mem.extract([("i can't stand cheese anymore", "since when")], [], NOW)
+        rows = await db.load_memories(include_inactive=True)
+        recalled = await mem.recall(["cheese"], calm(), False, NOW + 1)
+        await db.close()
+        return out, rows, seen["body"], recalled, old_id
+    out, rows, body, recalled, old_id = run(go())
+    assert f"#{old_id}" in body and "sharp cheddar" in body and "replaces" in body            # it was shown what might be out of date
+    assert out["replaced"] == 1 and {r["id"]: r["status"] for r in rows}[old_id] == "superseded"
+    assert [r.row["text"] for r in recalled] == ["he used to love cheese and says he can't stand the stuff now"]   # only the current one returns
+
+
+def test_an_exception_is_kept_alongside_not_instead(db_url):
+    async def go():
+        c, db, llm, mem = mk(db_url)
+        await db.migrate()
+        llm.script("r1", extraction(item("he finds philosophizing about work problems trite", 4)))
+        await mem.extract([("x", "y")], [], NOW - 30 * DAY)
+        llm.script("r1", extraction(item("he philosophized about a work problem himself because he doesn't think it's trite when the problem is about people", 4)))
+        out = await mem.extract([("x", "y")], [], NOW)
+        rows = await db.load_memories()
+        await db.close()
+        return out, rows
+    out, rows = run(go())
+    assert out["saved"] == 1 and "replaced" not in out and len(rows) == 2
+
+
+def test_notes_are_framed_as_tendencies_and_forget_gets_a_plain_agreement():
+    from astrid import persona
+    head = persona.profile_block([{"text": "x"}])
+    assert "generalizations, not rules" in head and "what he says now beats a note" in head
+    assert "forget something or drop it" in persona.RULES

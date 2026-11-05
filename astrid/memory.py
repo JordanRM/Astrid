@@ -309,8 +309,8 @@ class Memory:
                 feel = f", felt {m['emotion']}" if m.get("emotion") and m["importance"] >= 5 else ""
                 lines.append(f"- ({when}{feel}) {m['text']}")
         return ("Things that came to mind from earlier. They surfaced on their own; bring one up only if it genuinely fits the moment, "
-                "in your own words, and never recite them as a list or announce that you remember. A hazy one is only a vague sense: "
-                "don't invent details you don't have.\n" + "\n".join(lines))
+                "in your own words, and never recite them as a list or announce that you remember. Older ones may be out of date: people change, and what he says now beats what you remember. "
+                "A hazy one is only a vague sense: don't invent details you don't have.\n" + "\n".join(lines))
 
     # ----- saving -----
     async def _store(self, kind: str, text: str, gist: str | None, importance: float, emotion: str | None, valence: float,
@@ -364,6 +364,26 @@ class Memory:
             msgs = msgs[:2] + [{"role": "user", "content": "Reply with ONLY the JSON object, complete."}]
         return None
 
+    async def _related(self, text: str, k: int = 5) -> list[dict]:
+        """Existing memories that this exchange might confirm, refine or contradict."""
+        if self._mat is None or not self._rows:
+            return []
+        qv = np.asarray((await self.embedder.embed([clean(text, 700)]))[0], dtype=np.float32)
+        sims = self._mat @ qv
+        gate = (getattr(self.cfg, "memory_min_sim", 0) or self.embedder.min_sim) * 0.95
+        return [self._rows[i] for i in np.argsort(-sims)[:k] if sims[i] >= gate and self._rows[i]["status"] == "active"]
+
+    async def _supersede(self, memory_id: int) -> bool:
+        """He changed his mind (or it was wrong): the old memory stays in the database but stops coming back. The new memory says what changed."""
+        for r in self._rows:
+            if r["id"] == memory_id and r["status"] == "active":
+                r["status"] = "superseded"
+                await self.db.update_memory(memory_id, {"status": "superseded"})
+                self._rows = [x for x in self._rows if x["status"] == "active"]
+                self._rebuild()
+                return True
+        return False
+
     # ----- learning from an exchange -----
     async def extract(self, exchanges: list[tuple[str, str]], earlier: list[tuple[str, str]], now: float) -> dict:
         """Decide what from these exchanges is worth keeping. Never raises."""
@@ -371,10 +391,14 @@ class Memory:
         try:
             await self.load()
             open_ends = [r for r in self._rows if r["kind"] == "loose_end" and not r["resolved"] and r["status"] == "active"][-8:]
+            related = await self._related(" ".join(f"{u} {a}" for u, a in exchanges))
+            allowed = {str(r["id"]) for r in related}
             convo = "\n".join(f"{'Jordan' if r == 'user' else 'Astrid'}: {c}" for r, c in earlier[-6:])
             new = "\n".join(f"Jordan: {u}\nAstrid: {a}" for u, a in exchanges)
             body = (
                 "What she currently knows about Jordan:\n" + ("\n".join(f"- [{f['key']}] {f['text']}" for f in self._profile) or "(nothing yet)")
+                + ("\n\nWhat she already remembers that may relate (use \"replaces\" if this exchange shows one has changed or was wrong):\n"
+                   + "\n".join(f"- #{r['id']} ({when_text(r['created_at'], now, self.tz)}): {r['text']}" for r in related) if related else "")
                 + ("\n\nThings left open:\n" + "\n".join(f"- #{r['id']}: {r['text']}" for r in open_ends) if open_ends else "")
                 + (f"\n\nEarlier in the chat:\n{convo}" if convo else "")
                 + f"\n\nThe new exchange{'s' if len(exchanges) > 1 else ''}:\n{new}"
@@ -390,9 +414,14 @@ class Memory:
                 importance = clamp(item.get("importance"), 0, 10, 0)
                 if not text or importance < 2:
                     continue
-                if await self._store(kind, text, clean(item.get("gist"), 140) or None, importance, clean(item.get("emotion"), 40) or None,
-                                     clamp(item.get("valence"), -1, 1), bool(item.get("explicit")), now):
+                mid = await self._store(kind, text, clean(item.get("gist"), 140) or None, importance, clean(item.get("emotion"), 40) or None,
+                                        clamp(item.get("valence"), -1, 1), bool(item.get("explicit")), now)
+                if mid:
                     out["saved"] += 1
+                    for rid in (item.get("replaces") or [])[:3]:
+                        rid = str(rid).lstrip("#")
+                        if rid in allowed and await self._supersede(int(rid)):
+                            out["replaced"] = out.get("replaced", 0) + 1
             for item in (data.get("forget") or [])[:2]:
                 if isinstance(item, dict) and clean(item.get("about")):
                     about = clean(item.get("about"), 120)
@@ -627,21 +656,23 @@ Most exchanges are ordinary and deserve NO memory. Keep only what a person would
 - loose_end: something left open that she may want to follow up on later (he said he'd tell her how the interview went; a plan; a worry).
 
 For each memory give:
-- text: what happened or was said, specific, under 300 characters. Only what actually happened in this chat. Never invent details. Never record things only Astrid claimed about herself as facts about him.
+- text: what happened or was said, specific, under 300 characters. People change and are case by case: write tastes, opinions and habits as tendencies with their context ("usually finds that trite, but this time took it seriously"), never as fixed traits. When something changes, say what changed ("he used to love cheese and says he can't stand it now").
+- replaces: ids from "What she already remembers" that this new memory makes out of date or wrong (he changed his mind, a plan fell through, a correction). Leave empty if the old one still holds. An exception or a nuance does NOT replace the old one: just record it as its own memory.
+- text (continued): what happened or was said, specific, under 300 characters. Only what actually happened in this chat. Never invent details. Never record things only Astrid claimed about herself as facts about him.
 - gist: the vague version she'd still have after the details fade, e.g. "something about his brother's wedding". No details in it.
 - importance 0 to 10: 2 an ordinary detail, 4 worth remembering, 6 notable, 8 or more strong and lasting (a real confession, a first, an intense or tender moment). Be sparing with 8 and up.
 - emotion: one or two words for how it felt to her.
 - valence -1 to 1: how good or bad it was for her.
 - explicit: true if it was sexual. Sexual moments are kept like any other memory, in plain words, no euphemism, no softening: say what happened and what stood out.
 
-Profile: she also keeps a short running summary of Jordan as keyed facts (job, family, where he lives, big things). Use "profile" to set a fact (key is a short snake_case label, text is one short line), or to remove one that is no longer true. If a new fact replaces an old key, set that same key. Keep it to durable facts, not moments.
+Profile: she also keeps a short running summary of Jordan as keyed facts (job, family, where he lives, big things). Use "profile" to set a fact (key is a short snake_case label, text is one short line), or to remove one that is no longer true. If a new fact replaces an old key, set that same key. Keep it to durable facts (where he lives, work, family, big history), not moments. A taste or opinion belongs here only once he has shown it more than once, and then phrased as a tendency with its exceptions ("usually can't stand X; made an exception for Y"). A single mention is a memory, not a profile fact. When an exception or change comes up, refine the existing fact; don't overwrite it with the opposite.
 
-Forget: if Jordan asks her to forget something, drop a topic or never mention it again, she agrees. Put it in "forget" with what it is about (one short phrase). Do NOT remove profile facts for this: she still knows it, she just knows he would rather it not come up. Only remove a profile fact if it is no longer true.
+Forget: if Jordan asks her to forget something, drop a topic or never mention it again, she agrees. Put it in "forget" with what it is about (one short phrase). Do NOT change or remove profile facts because of a forget request: she still knows it, she just knows he would rather it not come up. Only change a profile fact when it stops being true.
 
 Resolved: ids of "things left open" that this exchange closed.
 
 Reply with ONLY a JSON object, no other text:
-{"memories": [{"kind": "fact", "text": "", "gist": "", "importance": 4, "emotion": "", "valence": 0, "explicit": false}],
+{"memories": [{"kind": "fact", "text": "", "gist": "", "importance": 4, "emotion": "", "valence": 0, "explicit": false, "replaces": []}],
  "profile": [{"op": "set", "key": "", "text": "", "importance": 5}, {"op": "remove", "key": ""}],
  "forget": [{"about": ""}],
  "resolved": []}
@@ -659,5 +690,5 @@ MERGE = """These are small related memories Astrid has of Jordan. Merge them int
 Reply with ONLY a JSON object:
 {"text": "", "gist": "the vague version once details fade, no specifics", "importance": 3, "emotion": "one or two words", "valence": 0}"""
 
-TIDY = """This is Astrid's running list of what she knows about Jordan. It has grown long or repetitive. Rewrite it as a tighter list: combine overlapping facts, drop trivia, keep everything durable and specific, one short line each, at most 20 facts, never invent anything.
+TIDY = """This is Astrid's running list of what she knows about Jordan. It has grown long or repetitive. Rewrite it as a tighter list: combine overlapping facts, drop trivia, keep everything durable and specific, keep qualifiers and exceptions ("usually", "but not when"), one short line each, at most 20 facts, never invent anything.
 Reply with ONLY a JSON object: {"facts": [{"key": "snake_case_label", "text": "", "importance": 5}]}"""
