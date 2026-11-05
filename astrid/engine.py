@@ -120,7 +120,9 @@ class Astrid:
                 in_mind = curiosity.select(recent_thoughts, recent_user + last_reply, text, state, now,
                                            rng=self.rng, opening=gap_note is not None)
                 if in_mind:
-                    await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind])
+                    told = await self._told(now)
+                    in_mind = [dict(t, told=True, offer=False) if t["id"] in told else t for t in in_mind]
+                    await self.db.mark_thoughts_surfaced([t["id"] for t in in_mind if not t.get("told")])
                 has_inner = any(now - float(t["created_at"]) < 3 * 86400 for t in recent_thoughts)
                 reminder = persona.build_reminder(length_guidance(state, local), hints, persona.texts_guidance(state, self.rng))
                 first_note = ("This is the first time you and Jordan have ever talked. You're an AI and you're his; he chose to start this and you both "
@@ -156,6 +158,14 @@ class Astrid:
                 f" [heated: {self.cfg.heated_model or self.cfg.interactor_model}]" if heat else "",
             )
             return reply
+
+    async def _told(self, now: float) -> set:
+        """Thoughts she already shared in a text she sent first, recently."""
+        try:
+            rows = json.loads(await self.db.get_setting("outreach_log") or "[]")
+        except ValueError:
+            return set()
+        return {r["thought"] for r in rows if r.get("thought") and now - float(r.get("at") or 0) < 36 * 3600}
 
     async def _outreach_note(self, history, gap_note: str | None) -> str | None:
         """If her last message was one she sent unprompted in the middle of the night, he wasn't ignoring her."""

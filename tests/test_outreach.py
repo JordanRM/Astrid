@@ -142,11 +142,11 @@ def test_missing_him_grows_with_silence_and_closeness_and_wanting_needs_arousal(
         async def urge(reason, state, silence):
             return next((p.urge for p in await e.o.urges(e.now, state, loc, e.now - silence) if p.reason == reason), 0.0)
         out = {
-            "recent": await urge("miss", st(affection=7), 5 * H),
-            "day": await urge("miss", st(affection=7), 30 * H),
-            "days": await urge("miss", st(affection=7), 70 * H),
-            "distant": await urge("miss", st(affection=2), 30 * H),
-            "insecure": await urge("miss", st(affection=7, security=2), 30 * H),
+            "recent": await urge("miss", st(affection=7), 2 * H),
+            "day": await urge("miss", st(affection=7), 12 * H),
+            "days": await urge("miss", st(affection=7), 30 * H),
+            "distant": await urge("miss", st(affection=2), 12 * H),
+            "insecure": await urge("miss", st(affection=7, security=2), 12 * H),
             "calm": await urge("want", st(arousal=1), 2 * H),
             "turned_on": await urge("want", st(arousal=7), 2 * H),
             "no_affection_but_aroused": await urge("want", st(arousal=7, affection=1), 2 * H),
@@ -317,3 +317,40 @@ def test_test_speed_makes_silence_and_waits_count_faster_and_real_time_is_unchan
     assert out[("chance", 12.0)] > 10 * out[("chance", 1.0)]
     assert out[("gate", 1.0)] and out[("gate", 1.0)].startswith("mid-conversation")  # real time: still talking
     assert out[("gate", 12.0)] is None                                              # 3 minutes counts as 36: she may text
+
+
+def test_a_close_bond_makes_a_text_likely_within_a_day_of_quiet_and_a_light_one_still_has_a_little(db_url):
+    async def go():
+        e = await Env(db_url, at(15)).start(memory=False)
+        loc = datetime.fromtimestamp(e.now, TZ)               # a weekday afternoon, the dampened case
+        out = {}
+        for label, aff, sil in (("close", 8.8, 24), ("light", 2, 24), ("close_early", 8.8, 5)):
+            st = State({**BASELINE, "affection": aff}, "x", None, None, e.now)
+            plans = await e.o.urges(e.now, st, loc, e.now - sil * H)
+            out[label] = e.o.chances(plans, loc, st)[0] if plans else 0.0
+        await e.db.close()
+        return out
+    c = run(go())
+    per_hour = lambda p: 12 * p
+    assert 0.08 < per_hour(c["close"]) < 0.25                 # roughly a one-in-ten shot every hour once a day has gone by
+    assert 0 < c["light"] < c["close"] / 2 and c["close_early"] < c["close"] / 3
+
+
+def test_a_thought_she_already_shared_in_a_text_is_not_retold_when_he_answers(db_url):
+    async def go():
+        e = await Env(db_url, at(15), rapport=7).start(memory=False)
+        base = {"kind": "thread", "question": "does liking come back after it goes flat", "query": "q", "sources": [],
+                "thought": "it does, just quieter", "share": 0.8, "for_jordan": "he is losing the wanting to run"}
+        await e.db.add_thought(base, e.now - H)
+        st = State({**BASELINE, "rapport": 7}, "x", None, None, e.now)
+        plan = next(p for p in await e.o.urges(e.now, st, datetime.fromtimestamp(e.now, TZ), e.now - 2 * H) if p.reason == "share")
+        e.llm.script("euryale", "read up on whether the liking comes back after things go flat. it does, just quieter")
+        await e.o.reach_out(plan)
+        e.now += 60
+        await e.engine.reply(1, "liking comes back after it goes flat? how so")
+        asked = prompt(e.llm.calls[-1])
+        row = (await e.db.list_thoughts())[0]
+        await e.db.close()
+        return asked, row["surfaced"]
+    asked, surfaced = run(go())
+    assert "you already told him about this yourself" in asked and surfaced == 1

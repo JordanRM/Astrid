@@ -27,6 +27,8 @@ log = logging.getLogger("astrid.outreach")
 
 BASE_P = 0.03            # per 5-minute check, before urge, mood and hour are applied
 MAX_DAILY = 6
+SILENCE_START_H = 3      # she can start to miss him after this many quiet hours
+SILENCE_RAMP_H = 18      # and it's at full pull this much later
 ACTIVE_MINUTES = 25      # she doesn't text into a conversation that's still going: nothing from either of you in this long
 
 
@@ -149,8 +151,10 @@ class Outreach:
                               "Tell him the one part that matters, in your words. Not a summary, not a link.", cues=[t["question"], t["for_jordan"]],
                               thought_id=t["id"]))
 
-        if last_user and silence_h >= 12:
-            urge = clamp((silence_h - 12) / 60) * clamp(v["affection"] / 8) * (1.3 if v["security"] < 4 else 1.0)
+        if last_user and silence_h >= SILENCE_START_H:
+            # Starts after a few quiet hours and is full by about a day. The closer she is, the more it pulls, but even a
+            # light bond has a little (acquaintances still send each other things).
+            urge = clamp((silence_h - SILENCE_START_H) / SILENCE_RAMP_H) * max(0.25, clamp(v["affection"] / 8)) * (1.3 if v["security"] < 4 else 1.0)
             tone = ("You're a little hurt that it's been quiet, but you want him to talk to you, not feel guilty. Say it dry and plainly."
                     if v["security"] < 4 else "Say that you noticed the quiet and you want to hear from him. Warm and plain, no guilt.")
             plans.append(Plan("miss", clamp(urge), f"You haven't heard from him in {ago(silence_h)} and you've noticed. {tone}"))
@@ -244,6 +248,8 @@ class Outreach:
         rows = (await self._log())[-39:] + [{"at": self.now(), "reason": plan.reason, "quiet": quiet, "thought": plan.thought_id}]
         await self.db.set_setting("outreach_log", json.dumps(rows))
         await self.db.set_setting("last_outreach", json.dumps({"at": rows[-1]["at"], "quiet": quiet, "reason": plan.reason}))
+        if plan.thought_id:
+            await self.db.mark_thoughts_surfaced([plan.thought_id])
         if plan.memory_id and self.memory is not None:
             for r in self.memory._rows:
                 if r["id"] == plan.memory_id:

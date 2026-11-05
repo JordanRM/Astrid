@@ -455,6 +455,8 @@ def render(thoughts: list[dict], now: float) -> str | None:
             line += f" (detail: {t['learned']})"
         if t.get("for_jordan"):
             line += f" (why you'd tell him: {t['for_jordan']})"
+        if t.get("told"):
+            line += " (you already told him about this yourself in a text. Don't retell it or open with it again; only respond to what he says about it)"
         if t.get("offer"):
             line += " (you've been wanting to tell him about this one; you can bring it up yourself)"
         lines.append(line)
