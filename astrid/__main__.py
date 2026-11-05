@@ -292,7 +292,9 @@ def main() -> int:
                 for p, c in zip(plans, chances):
                     print(f"  {p.reason}: urge {p.urge:.2f}, {c * 100:.1f}% at each 5-minute check")
                 if not plans:
-                    print("  nothing on her mind that would make her text (miss needs 12h of silence, follow_up an open loose end 16h+ old)")
+                    from .outreach import SILENCE_START_H
+                    print(f"  nothing on her mind that would make her text (missing him starts after about {SILENCE_START_H}h of silence, "
+                          "follow_up needs an open loose end 16h+ old, share needs a thought she wants to tell him)")
                 miss_all = 1.0
                 for c in chances:
                     miss_all *= 1 - c
