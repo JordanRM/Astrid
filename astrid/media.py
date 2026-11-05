@@ -20,7 +20,7 @@ URL = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
 _NONCON = re.compile(r"non-?con(?:sent)?\b|\brap(?:e|ed|es|ing|ist)\b|drugged|unconscious|passed out|hidden ?cam|spy ?cam|upskirt|voyeur|"
                      r"revenge ?porn|\bleak(?:ed|s)?\b|deepfake|fake ?nudes?|blackmail|coerc|against (?:her|his|their) will|exposed", re.I)
 _REAL = re.compile(r"celebrit|\bceleb\b|nudes? of|onlyfans|fansly|cam ?(?:girl|model|show)|camgirl|chaturbate|porn ?star|pornstar|actress|"
-                   r"influencer|tiktoker|instagram model|amateur|homemade|real (?:couple|wife|girlfriend)|\bex-?gf\b|ex-?girlfriend", re.I)
+                   r"influencer|tiktoker|instagram model|homemade|real (?:couple|wife|girlfriend)|\bex-?gf\b|ex-?girlfriend", re.I)
 
 MAX_UNSHARED = 8
 SPACING_MIN = 15       # minutes between links
