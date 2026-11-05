@@ -239,6 +239,8 @@ def main() -> int:
                 llm = OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url)
                 memory = Memory(cfg, db, llm, make_embedder(cfg.embed_model))
                 got = await Scout(cfg, db, llm, Brave(cfg.brave_api_key), memory).gather()
+                if got:
+                    print(f"she searched for: {got[0]['query']!r} ({got[0]['owner']})")
                 print(f"kept {len(got)} link(s)" if got else "nothing kept (she may not know what she likes yet, or nothing passed the filter; see the log lines above)")
             for r in await db.list_media(40):
                 print(f"#{r['id']} [{r['owner']}] {'shared ' + str(r['times_shared']) + 'x' if r['times_shared'] else 'not shared'} {r['title'] or ''}\n    {r['url']}\n    why: {r['why'] or ''}")

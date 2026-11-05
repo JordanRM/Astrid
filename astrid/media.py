@@ -96,7 +96,7 @@ def offer_note(row: dict) -> str:
     own = {
         "his": "It fits something he's told you he likes, so it's natural to say you know he likes that.",
         "hers": "It's something you like yourself, and he may not know that about you yet. Tell him you like it and, in your own words, what draws you to it, then ask what he thinks.",
-        "both": "It's something you think you'd both like.",
+        "both": "It's something you think you'd both like. If it fits, you can say so, or why, but you don't have to.",
     }.get(row.get("owner"), "")
     seen = " | ".join(x for x in (row.get("title"), row.get("snippet")) if x and x != "added by hand")
     return (f"You've got a link you want to send him right now: {row['url']}. {own} "
@@ -164,6 +164,6 @@ class Scout:
                 mid = await self.db.add_media({"url": r["url"], "title": r["title"], "domain": domain_of(r["url"]), "snippet": r.get("snippet"),
                                                "owner": owner, "why": trim(_clean(data.get("why")), 200), "query": query})
                 if mid:
-                    saved.append({"id": mid, "url": r["url"], "title": r["title"], "owner": owner})
+                    saved.append({"id": mid, "url": r["url"], "title": r["title"], "owner": owner, "query": query})
         log.info("media: kept %d link%s for %r (%s)", len(saved), "" if len(saved) == 1 else "s", query, owner)
         return saved
