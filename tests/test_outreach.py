@@ -296,3 +296,24 @@ def test_a_draft_that_fails_the_checks_is_not_sent(db_url):
         await e.db.close()
         return text, e.sent
     assert run(go()) == (None, [])
+
+
+def test_test_speed_makes_silence_and_waits_count_faster_and_real_time_is_unchanged(db_url):
+    async def go():
+        out = {}
+        for speed in (1.0, 12.0):
+            e = await Env(db_url, at(18)).start(outreach_speedup=speed)
+            loc = datetime.fromtimestamp(e.now, TZ)
+            st = State({**BASELINE, "affection": 7}, "x", None, None, e.now)
+            out[("miss", speed)] = next((p.urge for p in await e.o.urges(e.now, st, loc, e.now - 3 * H) if p.reason == "miss"), 0.0)
+            out[("chance", speed)] = e.o.chances([Plan("miss", 0.5, "x")], loc, st)[0]
+            await e.db.set_setting("last_outreach", "{}")
+            await e.db.add_message(1, "assistant", "hi", e.now - 3 * 60)     # three real minutes ago
+            out[("gate", speed)] = await e.o._gate(e.now, loc, e.now - 3 * H)
+            await e.db.close()
+        return out
+    out = run(go())
+    assert out[("miss", 1.0)] == 0.0 and out[("miss", 12.0)] > 0                    # 3 real hours counts as 36
+    assert out[("chance", 12.0)] > 10 * out[("chance", 1.0)]
+    assert out[("gate", 1.0)] and out[("gate", 1.0)].startswith("mid-conversation")  # real time: still talking
+    assert out[("gate", 12.0)] is None                                              # 3 minutes counts as 36: she may text

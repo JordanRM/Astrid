@@ -97,7 +97,11 @@ class Outreach:
         self.rng = rng or random.Random()
         self.tz = ZoneInfo(cfg.timezone)
         self.tide = Tide(self.rng)
+        self.speed = getattr(cfg, "outreach_speedup", 1.0) or 1.0   # testing only: silences and waits count this many times faster
         self._stop = False
+
+    def _el(self, seconds: float) -> float:
+        return seconds * self.speed
 
     def stop(self) -> None:
         self._stop = True
@@ -120,14 +124,14 @@ class Outreach:
     async def urges(self, now: float, state, local: datetime, last_user: float | None) -> list[Plan]:
         v = state.values
         plans: list[Plan] = []
-        silence_h = (now - last_user) / 3600 if last_user else 0.0
+        silence_h = self._el(now - last_user) / 3600 if last_user else 0.0
         log_rows = await self._log()
         shared = {r.get("thought") for r in log_rows if r.get("thought")}
 
         if self.memory is not None:
             await self.memory.load()
             ends = [r for r in self.memory._rows if r["kind"] == "loose_end" and not r["resolved"] and not r.get("followed_up")
-                    and r["status"] == "active" and 16 <= (now - r["created_at"]) / 3600 <= 10 * 24]
+                    and r["status"] == "active" and 16 <= self._el(now - r["created_at"]) / 3600 <= 10 * 24]
             if ends:
                 best = max(ends, key=lambda r: (now - r["created_at"]))
                 age_days = (now - best["created_at"]) / 86400
@@ -170,7 +174,7 @@ class Outreach:
 
     def chances(self, plans: list[Plan], local: datetime, state) -> list[float]:
         """The chance, at each 5-minute check, that she acts on each thing she has in mind."""
-        return [BASE_P * p.urge * (0.3 + self.tide.level) * self._time_factor(p, local, state) for p in plans]
+        return [BASE_P * self.speed * p.urge * (0.3 + self.tide.level) * self._time_factor(p, local, state) for p in plans]
 
     # ----- deciding -----
     async def _gate(self, now: float, local: datetime, last_user: float | None) -> str | None:
@@ -180,14 +184,14 @@ class Outreach:
         if last_user is None:
             return "he hasn't ever written"
         last_any = await self.db.last_message_at()
-        if last_any and now - last_any < ACTIVE_MINUTES * 60:
+        if last_any and self._el(now - last_any) < ACTIVE_MINUTES * 60:
             return f"mid-conversation (last message {int((now - last_any) // 60)} min ago; she waits {ACTIVE_MINUTES})"
         rows = await self._log()
         today = [r for r in rows if datetime.fromtimestamp(r["at"], self.tz).date() == local.date()]
         if len(today) >= self.tide.cap():
             return "enough for today"
         if rows:
-            since = now - rows[-1]["at"]
+            since = self._el(now - rows[-1]["at"])
             unanswered = sum(1 for r in rows if r["at"] > last_user)
             if unanswered >= 3 and since < 72 * 3600:
                 return "no answer to the last few, leaving it"
@@ -263,6 +267,8 @@ class Outreach:
         return await self.reach_out(plan) if plan else None
 
     async def loop(self) -> None:
+        if self.speed > 1:
+            log.warning("outreach TEST SPEED x%g: silences and waits count faster than real time. Remove OUTREACH_SPEEDUP from .env to go back", self.speed)
         await asyncio.sleep(60)
         while not self._stop:
             try:

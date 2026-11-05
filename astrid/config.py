@@ -22,6 +22,7 @@ class Config:
     history_limit: int = 24         # the smallest recent window she always sees
     history_minutes: int = 120      # she sees everything from roughly the last two hours...
     history_max: int = 100          # ...up to this many messages
+    outreach_speedup: float = 1.0   # testing only: OUTREACH_SPEEDUP=12 makes her waits and silences count 12x faster (1 = real time)
     outreach: bool = True           # she may text first; OUTREACH=off turns it off
     embed_model: str = ""           # empty: BAAI/bge-small-en-v1.5; "hash" forces the simple word-matching fallback
     max_reply_tokens: int = 600
@@ -35,6 +36,13 @@ class Config:
     heated_model: str = ""          # reply model while things are sexual; empty means the normal reply model
     heated_max_tokens: int = 500
     heated_temperature: float = 1.0
+
+
+def _speedup(raw: str) -> float:
+    try:
+        return max(1.0, min(30.0, float(raw))) if raw else 1.0
+    except ValueError:
+        return 1.0
 
 
 def _first(env, *names):
@@ -84,5 +92,6 @@ def load_config(env=None) -> Config:
         brave_api_key=_first(env, "BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"),
         heated_model=_first(env, "HEATED_MODEL"),
         embed_model=_first(env, "EMBED_MODEL"),
+        outreach_speedup=_speedup(_first(env, "OUTREACH_SPEEDUP")),
         outreach=_first(env, "OUTREACH").lower() not in ("off", "false", "0", "no"),
     )

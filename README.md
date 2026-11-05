@@ -121,6 +121,7 @@ She can text first. It isn't a timer: every 5 minutes she weighs whether anythin
     .venv/bin/python -m astrid outreach                  # tide, hours, and what she has on her mind
     .venv/bin/python -m astrid outreach now want         # force one: follow_up, share, miss or want
     OUTREACH=off in .env                                  # turns it off
+    OUTREACH_SPEEDUP=12 in .env                           # testing only: silences and waits count 12x faster; delete the line to go back
 
 ## Flagging replies
 
