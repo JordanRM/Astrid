@@ -24,6 +24,7 @@ class Config:
     history_max: int = 100          # ...up to this many messages
     media_domains: tuple = ()        # sites she may take links from, e.g. MEDIA_DOMAINS=site1.com,site2.com; empty turns links off
     first_meeting_note: bool = True  # False only in the bench, for scenarios that aren't about meeting for the first time
+    avoid_topics: tuple = ("choking", "strangulation", "strangling", "breath play", "asphyxiation")  # never researched, liked or linked; AVOID_TOPICS=a,b adds more
     media_force: bool = False       # MEDIA_FORCE=on, for testing only: she always offers a stocked link in a heated moment (no odds, spacing or daily cap)
     reply_reasoning: bool = True    # REPLY_REASONING=off asks the reply model not to think first (faster, cheaper; test with the bench)
     outreach_speedup: float = 1.0   # testing only: OUTREACH_SPEEDUP=12 makes her waits and silences count 12x faster (1 = real time)
@@ -97,6 +98,7 @@ def load_config(env=None) -> Config:
         heated_model=_first(env, "HEATED_MODEL"),
         embed_model=_first(env, "EMBED_MODEL"),
         media_domains=tuple(d.strip().lower().removeprefix("www.") for d in _first(env, "MEDIA_DOMAINS").split(",") if d.strip()),
+        avoid_topics=("choking", "strangulation", "strangling", "breath play", "asphyxiation") + tuple(d.strip().lower() for d in _first(env, "AVOID_TOPICS").split(",") if d.strip()),
         media_force=_first(env, "MEDIA_FORCE").lower() in ("on", "true", "1", "yes"),
         reply_reasoning=_first(env, "REPLY_REASONING").lower() not in ("off", "false", "0", "no"),
         outreach_speedup=_speedup(_first(env, "OUTREACH_SPEEDUP")),

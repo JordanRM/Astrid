@@ -56,6 +56,20 @@ _ANIMAL = re.compile(r"\b(animal|animals|dog|dogs|horse|horses|donkey|pig|pigs|g
 _ALWAYS = re.compile(r"bestial|zoophil|\bzoo ?sex|cub ?porn|\bpedo|paedo|\bcp\b", re.I)
 
 
+def avoid_re(terms) -> "re.Pattern | None":
+    """Words and phrases she stays away from. Each is matched from the start of a word, so 'choking' also catches 'choke' and 'choked'."""
+    stems = []
+    for t in terms or ():
+        t = (t or "").strip().lower()
+        for end in ("ation", "ing", "ed", "es", "e", "s"):
+            if t.endswith(end) and len(t) - len(end) >= 4:
+                t = t[: -len(end)]
+                break
+        if t:
+            stems.append(re.escape(t))
+    return re.compile(r"\b(?:" + "|".join(dict.fromkeys(stems)) + ")", re.I) if stems else None
+
+
 def unsafe_query(query: str, explicit_seed: bool) -> bool:
     q = query or ""
     if _ALWAYS.search(q):
@@ -217,7 +231,7 @@ class Wanderer:
             msgs = [msgs[0], msgs[1], {"role": "user", "content": "Reply with ONLY the JSON object, complete."}]
         raise ValueError(f"no usable JSON (model said: {raw[:160]!r})")
 
-    async def wander(self, overnight: bool = False, force: str | None = None) -> dict | None:
+    async def wander(self, overnight: bool = False, force: str | None = None, focus: str | None = None) -> dict | None:
         """One round: choose a question, search, read, keep a thought. Returns the saved thought, or None."""
         started = time.monotonic()
         now = self.now()
@@ -226,6 +240,15 @@ class Wanderer:
         recent = await self.db.list_thoughts(25)
         user_lines = await self.db.recent_user_lines(60)
         kind, nudge = pick_seed(self.rng, state, held, recent, user_lines, overnight, force)
+        terms = tuple(getattr(self.cfg, "avoid_topics", ()) or ())
+        avoid = avoid_re(terms)
+        if focus:                                                   # for testing: point her at something specific
+            if avoid and avoid.search(focus):
+                log.warning("wander: that focus is on her avoid list: %r", focus)
+                return None
+            nudge += f"\nWhat you want to know about right now, specifically: {focus}"
+        if terms:
+            nudge += "\nThings you never look into, read about or form a view on, whatever the seed: " + ", ".join(terms) + "."
 
         local = datetime.fromtimestamp(now, self.tz)
         context = (
@@ -236,6 +259,9 @@ class Wanderer:
         question, query = _clean(choice.get("question")) or "", " ".join(str(choice.get("query") or "").split())[:200]
         if not query:
             log.info("wander: nothing chosen (%s)", kind)
+            return None
+        if avoid and avoid.search(query + " " + question):
+            log.info("wander: dropped a query on her avoid list: %r", query)
             return None
         if unsafe_query(query + " " + question, kind in ("desire", "heat")):
             log.warning("wander: dropped a query that touches minors or animals: %r", query)
@@ -265,6 +291,9 @@ class Wanderer:
         made = await self._ask(THINK, user, 3000)
         thought = _clean(made.get("thought"))
         if not thought:
+            return None
+        if avoid and avoid.search(" ".join(str(made.get(k) or "") for k in ("thought", "notes", "learned", "to_try", "next_question")) + " " + str(made.get("opinion") or "")):
+            log.info("wander: what she read came round to her avoid list, so nothing was kept")
             return None
         share = made.get("share")
         row = {

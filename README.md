@@ -101,6 +101,18 @@ private unless they fit the conversation or you ask what she's been up to.
     .venv/bin/python -m astrid wonder            # send her off to read something now
     .venv/bin/python -m astrid wonder desire     # or force a kind: thread, opinion, follow, drift, desire, heat
 
+### Things she stays away from
+
+She never reads about, forms a view on, searches for or links anything on her avoid list. It starts with choking, strangulation,
+breath play and asphyxiation. Add more in `.env` (they're added to those, and each also catches its other forms, so `choking`
+catches `choke` and `choked`):
+
+    AVOID_TOPICS=term one,term two
+
+This only limits what she goes looking for. It doesn't stop her responding to something he brings up.
+
+To point her at a topic for testing: `.venv/bin/python -m astrid wonder desire "slow teasing"`.
+
 ## Memory
 
 She keeps a small, rewritable profile of you (always in her head), plus long-term memories that come back by cue.

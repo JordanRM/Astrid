@@ -31,7 +31,7 @@ USAGE = """usage: python -m astrid [command]
   state    show her mood and numbers; set them for testing:  state preset heated  |  state set arousal=8 trust=7
   thoughts list what she's read and thought about on her own time
   media    links she may share in explicit moments: media | gather [his|hers|both] | clear | add <url> his|hers|both (needs MEDIA_DOMAINS in .env)
-  wonder   send her off to read something right now (optional: thread, opinion, follow, drift, desire, heat)
+  wonder   send her off to read something right now (optional kind: thread, opinion, follow, drift, desire, heat; then optional topic: wonder desire "slow teasing")
   memories list what she remembers, strongest first; or search by meaning:  memories "his brother"
   profile  show what she knows about you; change it:  profile set job="..."  |  profile remove job
   consolidate  run the overnight tidy now (fade weak memories, merge small ones, tidy the profile)
@@ -224,13 +224,14 @@ def main() -> int:
             elif sub == "add":
                 # for testing: stock a link by hand.  media add <url> [his|hers|both] [why she likes it]
                 from .media import unsafe_word, domain_of
+                from .curiosity import avoid_re
                 args = sys.argv[3:]
                 if not args or not args[0].startswith("http"):
                     print('usage: media add <url> [his|hers|both] ["why she wants to share it"]')
                 else:
                     owner = args[1] if len(args) > 1 and args[1] in ("his", "hers", "both") else "both"
                     why = " ".join(args[2:] if len(args) > 1 and args[1] in ("his", "hers", "both") else args[1:]) or "added by hand for testing"
-                    hit = unsafe_word(args[0] + " " + why)
+                    hit = unsafe_word(args[0] + " " + why, avoid_re(cfg.avoid_topics))
                     if hit:
                         print(f"refused: that trips the filter ({hit!r})")
                     else:
@@ -253,12 +254,13 @@ def main() -> int:
             print("set BRAVE_API_KEY in .env first")
             return 1
         force = sys.argv[2] if len(sys.argv) > 2 else None
+        focus = " ".join(sys.argv[3:]) or None
         async def go():
             db = Database(cfg.database_url)
             await db.migrate()
             w = Wanderer(cfg, db, OpenRouter(cfg.openrouter_api_key, cfg.openrouter_base_url), Brave(cfg.brave_api_key))
             try:
-                row = await w.wander(force=force)
+                row = await w.wander(force=force, focus=focus)
             except (SearchError, LLMError, ValueError) as e:
                 print(f"didn't work: {e}")
                 row = None

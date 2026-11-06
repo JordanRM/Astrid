@@ -291,3 +291,49 @@ def test_amateur_alone_is_just_a_genre_tag_not_a_block():
 
 def test_homemade_is_also_just_a_tag():
     assert not media.unsafe("homemade couple video")
+
+
+def test_her_avoid_list_catches_the_word_and_its_forms():
+    from astrid.curiosity import avoid_re
+    rx = avoid_re(("choking", "breath play", "strangulation"))
+    for t in ("choking", "being choked", "he chokes me", "breath play", "strangulation scene"):
+        assert rx.search(t)
+    assert not rx.search("slow oral and teasing") and avoid_re(()) is None
+    assert media.unsafe_word("couple, light choking", rx) and not media.unsafe_word("couple, light teasing", rx)
+    rows = [{"url": "https://goodsite.com/a", "title": "choked on it", "snippet": ""}, {"url": "https://goodsite.com/b", "title": "slow", "snippet": ""}]
+    assert [r["url"] for r in media.clean_results(rows, DOMAINS, rx)] == ["https://goodsite.com/b"]
+
+
+def test_wandering_skips_her_avoid_list_and_can_be_pointed_at_a_topic(db_url):
+    import json as _j
+    from astrid.curiosity import Wanderer
+
+    class Brave:
+        async def search(self, q, count=5):
+            return [{"url": "https://example.com/p", "title": "t", "snippet": "s"}]
+
+    async def run_one(choice_query, thought, focus=None):
+        cfg = make_cfg(db_url)
+        db, llm = Database(db_url), FakeLLM()
+        await db.migrate()
+        llm.script("r1", _j.dumps({"question": "how does " + choice_query + " work", "query": choice_query, "why": "w"}),
+                   _j.dumps({"thought": thought, "opinion": None}))
+        w = Wanderer(cfg, db, llm, Brave())
+
+        async def fetch(url):
+            return ("title", "some page text about it")
+        w.fetch = fetch
+        row = await w.wander(force="desire", focus=focus)
+        n = len(await db.list_thoughts(10))
+        asked = "\n".join(m["content"] for c in llm.calls for m in c["messages"])
+        await db.close()
+        return row, n, asked
+
+    row, n, asked = run(run_one("choking technique", "x"))
+    assert row is None and n == 0                                          # dropped at the query
+    row, n, asked = run(run_one("slow teasing", "i came round to choking being a thing"))
+    assert row is None and n == 0                                          # dropped at what she concluded
+    row, n, asked = run(run_one("slow teasing", "the slow version works on me", focus="slow teasing"))
+    assert row and n == 1 and "specifically: slow teasing" in asked and "never look into" in asked.lower()
+    row, n, asked = run(run_one("x", "x", focus="choking"))
+    assert row is None                                                      # a focus on the list is refused

@@ -9,7 +9,7 @@ import re
 import time
 from urllib.parse import urlparse
 
-from .curiosity import _ALWAYS, _ANIMAL, _MINOR, _SEXUAL, _clean, trim
+from .curiosity import avoid_re, _ALWAYS, _ANIMAL, _MINOR, _SEXUAL, _clean, trim
 from .llm import LLMError
 from .state import clamp
 
@@ -42,14 +42,15 @@ Reply with ONLY JSON:
 _NOT_STRAIGHT = re.compile(r"\bgay\b|\bhomo(?:sexual)?\b|\bmale[- ]?(?:on|with|x)[- ]?male\b|\bm/m\b|\btwinks?\b|\bshemales?\b|\btrann(?:y|ies)\b|\bladyboys?\b|\bfemboys?\b|\btrans(?:gender|sexual)?\b|\bbi(?:sexual)?\b|\bmmf\b|\bgay[- ]for[- ]pay\b|\bmen only\b|\bguys? (?:fuck|suck|sucking|fucking)\b|\bboys?\b", re.I)
 
 
-def unsafe_word(text: str) -> str | None:
+def unsafe_word(text: str, avoid=None) -> str | None:
     """The first thing in the text that trips the filter, or None."""
     t = text or ""
     for rx in (_ALWAYS, _MINOR, _ANIMAL, _NONCON, _REAL, _NOT_STRAIGHT):
         m = rx.search(t)
         if m:
             return m.group(0)
-    return None
+    m = avoid.search(t) if avoid else None
+    return m.group(0) if m else None
 
 
 def unsafe(text: str) -> bool:
@@ -74,10 +75,10 @@ def is_page(url: str) -> bool:
     return bool(u.path.strip("/")) and not _LISTING.search(u.path + ("?" + u.query if u.query else ""))
 
 
-def clean_results(results: list[dict], domains) -> list[dict]:
+def clean_results(results: list[dict], domains, avoid=None) -> list[dict]:
     """Only specific pages on allowed sites whose address, title and snippet pass the filter."""
     return [r for r in results if allowed(r["url"], domains) and is_page(r["url"])
-            and not unsafe(" ".join((r.get("title") or "", r.get("snippet") or "", r["url"])))]
+            and not unsafe_word(" ".join((r.get("title") or "", r.get("snippet") or "", r["url"])), avoid)]
 
 
 def links_in(text: str) -> list[str]:
@@ -150,6 +151,7 @@ class Scout:
             return []
         if len([m for m in await self.db.list_media(40, unshared_only=True)]) >= MAX_UNSHARED:
             return []
+        avoid = avoid_re(getattr(self.cfg, "avoid_topics", ()))
         his, hers = await self.tastes()
         if only == "his":
             hers = []
@@ -158,7 +160,8 @@ class Scout:
         if not his and not hers:
             return []                                          # she doesn't know what she or he likes yet
         user = ("What he's told you he likes:\n" + ("\n".join(f"- {t}" for t in his) or "- nothing yet")
-                + "\n\nWhat you like yourself:\n" + ("\n".join(f"- {t}" for t in hers) or "- nothing yet"))
+                + "\n\nWhat you like yourself:\n" + ("\n".join(f"- {t}" for t in hers) or "- nothing yet")
+                + (("\n\nNever search for or share anything involving: " + ", ".join(self.cfg.avoid_topics)) if getattr(self.cfg, "avoid_topics", ()) else ""))
         try:
             raw = await self.llm.chat(self.cfg.interactor_model, [{"role": "system", "content": WANT}, {"role": "user", "content": user}],
                                       temperature=0.9, max_tokens=300, timeout=60, extra={"reasoning": {"enabled": False}})
@@ -170,7 +173,7 @@ class Scout:
             return []
         query = " ".join(str(data.get("query") or "").split())[:120]
         owner = data.get("owner") if data.get("owner") in ("his", "hers", "both") else "both"
-        if not query or unsafe(query) or (owner == "his" and not his) or (owner == "hers" and not hers):
+        if not query or unsafe_word(query, avoid) or (owner == "his" and not his) or (owner == "hers" and not hers):
             log.info("media: dropped a search (%r)", query)
             return []
         saved = []
@@ -178,7 +181,7 @@ class Scout:
         self.rng.shuffle(domains)
         for d in domains[:3]:
             try:
-                found = clean_results(await self.brave.search(f"site:{d} {query}", 8), self.cfg.media_domains)
+                found = clean_results(await self.brave.search(f"site:{d} {query}", 8), self.cfg.media_domains, avoid)
             except Exception as e:
                 log.info("media: search on %s failed: %s", d, e)
                 continue
